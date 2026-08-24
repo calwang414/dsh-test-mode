@@ -1,0 +1,10 @@
+# dsh-test-mode — 测试模式插件。
+#
+# Host 半:注册 /dsh-test-mode 前缀路由(静态 + JSON API),启动时把「测试模式」
+# 预设安装到 ~/.dsh/.agent-presets/dsh-test-mode/;测试引擎(动态插件装载 →
+# 快照 → 场景断言 → 清理断言)通过 JSON API 暴露。
+# Client 半(dsh.client bundle):「测试」对话视图标签(React 原生,无 iframe),
+# 跟随当前会话——只有当前会话是测试模式时才注册,否则注销。
+- insert:
+    - id: dsh-test-mode
+      name: '@calwang414/dsh-test-mode'
