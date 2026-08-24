@@ -161,6 +161,23 @@ dsh plugin --profile web add ./dsh-test-mode
 > `tar -czf dist/dsh-test-mode-0.1.0.tgz -C <临时目录> package`(临时目录内为
 > `package/` + lib、presets、assets、cordis.patch.yml、package.json、README.md、LICENSE)。
 
+## 发布(版本更新时)
+
+日常 push 不会发布任何东西;**只有推送版本 tag(`vX.Y.Z`)才会触发 GitHub Actions
+自动打包并创建 Release**(workflow: `.github/workflows/release.yml`)。
+
+```sh
+# 1. 更新 package.json 的 version(如 0.1.1)
+# 2. 更新 RELEASE_NOTES.md 的变更说明(发布说明正文)
+# 3. 打版本 tag 并推送 → Actions 自动: npm pack 生成 dsh-test-mode-<version>.tgz
+#    → 创建 Release(标题 dsh-test-mode vX.Y.Z,正文取 RELEASE_NOTES.md)并附加安装包
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+如需重新发布同一版本(如首次 workflow 配置后补发):删除并重建 tag 即可触发
+`git push origin :refs/tags/v0.1.0 && git tag v0.1.0 && git push origin v0.1.0`。
+
 ## 使用
 
 1. 在工作区目录启动 dsh web,新建对话;

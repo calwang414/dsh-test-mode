@@ -1,0 +1,41 @@
+name: release
+
+# 只在推送版本 tag(vX.Y.Z)时发布;日常 push main 不触发。
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pack tarball (npm pack, 按 package.json files 白名单)
+        run: npm pack
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ASSET="dsh-test-mode-${VERSION}.tgz"
+          if [ -f RELEASE_NOTES.md ]; then
+            gh release create "$GITHUB_REF_NAME" "$ASSET" \
+              --title "dsh-test-mode v${VERSION}" \
+              --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$GITHUB_REF_NAME" "$ASSET" \
+              --title "dsh-test-mode v${VERSION}" \
+              --generate-notes
+          fi
