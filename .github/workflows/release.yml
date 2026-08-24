@@ -1,10 +1,10 @@
 name: release
 
-# 只在推送版本 tag(vX.Y.Z)时发布;日常 push main 不触发。
+# 仅当推送 vX.Y.Z 版本标签时触发(普通提交不发布);
+# 标签版本必须与 package.json 的 version 一致,否则中止。
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -13,29 +13,43 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Pack tarball (npm pack, 按 package.json files 白名单)
-        run: npm pack
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: 校验 tag 与 package.json 版本一致
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          ASSET="dsh-test-mode-${VERSION}.tgz"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} 与 package.json version ${PKG_VERSION} 不一致,中止发布"
+            exit 1
+          fi
+          echo "发布版本: ${PKG_VERSION}"
+
+      - name: 打包
+        run: |
+          npm pack --pack-destination /tmp
+          PKG_NAME=$(node -p "require('./package.json').name.split('/').pop()")
+          VERSION=$(node -p "require('./package.json').version")
+          mv /tmp/*.tgz "/tmp/${PKG_NAME}-${VERSION}.tgz"
+          ls -la "/tmp/${PKG_NAME}-${VERSION}.tgz"
+
+      - name: 发布 Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name.split('/').pop()")
+          VERSION=$(node -p "require('./package.json').version")
+          ASSET="/tmp/${PKG_NAME}-${VERSION}.tgz"
           if [ -f RELEASE_NOTES.md ]; then
-            gh release create "$GITHUB_REF_NAME" "$ASSET" \
-              --title "dsh-test-mode v${VERSION}" \
+            gh release create "v${VERSION}" "$ASSET" \
+              --title "${PKG_NAME} v${VERSION}" \
               --notes-file RELEASE_NOTES.md
           else
-            gh release create "$GITHUB_REF_NAME" "$ASSET" \
-              --title "dsh-test-mode v${VERSION}" \
+            gh release create "v${VERSION}" "$ASSET" \
+              --title "${PKG_NAME} v${VERSION}" \
               --generate-notes
           fi
