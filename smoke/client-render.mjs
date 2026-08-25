@@ -38,9 +38,9 @@ const DATASETS = {
     projects: [{
       id: 'p1', name: '订单服务', baseUrl: 'http://127.0.0.1:9999',
       collections: [
-        { id: 'col1', name: '订单接口', requests: [{ id: 'r1', name: '创建订单', method: 'POST', url: '/orders', headers: [], query: [], body: '', assertions: [], extract: [] }] },
-        // 旧数据:集合/请求无 id,前端应用 name 兜底
-        { name: '无ID集合', requests: [{ name: '无ID请求', method: 'GET', url: '/x', headers: [], query: [], body: '', assertions: [], extract: [] }] },
+        { id: 'col1', name: '订单接口', requests: [{ id: 'r1', name: '创建订单', method: 'POST', url: '/orders', headers: { 'content-type': 'application/json', 'x-trace': 'abc' }, query: { page: '1' }, body: '', assertions: [], extract: [] }] },
+        // 旧数据:集合/请求无 id,前端应用 name 兜底;headers 数组格式(旧客户端产物)也能打开
+        { name: '无ID集合', requests: [{ name: '无ID请求', method: 'GET', url: '/x', headers: [{ key: 'x-old', value: '1' }], query: [], body: '', assertions: [], extract: [] }] },
       ],
     }],
   },
@@ -70,12 +70,17 @@ const DATASETS = {
 let confirmCalls = 0
 let deleteCalls = 0
 let planPostCalls = 0
+let lastRunRequest = null
 
 function makeFetchStub() {
   return async (url, init) => {
     const u = String(url)
     const method = init?.method ?? 'GET'
     if (method === 'DELETE') deleteCalls++
+    if (u.includes('/api/run-request') && method === 'POST') {
+      lastRunRequest = JSON.parse(init.body)
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { ok: true, status: 200, durationMs: 1, assertions: [] } }), text: async () => '{}' }
+    }
     if (u.includes('/api/plans') && method === 'POST' && !u.includes('incremental-preview')) planPostCalls++
     if (u.includes('/api/plans/incremental-preview')) {
       return { ok: true, status: 200, json: async () => ({ ok: true, fromChangelog: 1, changedRequests: 2, changedCases: 1, coveringCases: 1, changedScripts: 1, affectedScripts: 1, tableCases: 1, moduleCases: 1, totalEntries: 2, gaps: [{ method: 'POST', url: '/api/x', path: '/api/x' }] }), text: async () => '{}' }
@@ -582,6 +587,48 @@ for (const item of cases) {
   mockBtn.click()
   await sleep(20)
   check(lastDraft !== null && lastDraft.includes('测试数据') && lastDraft.includes('创建订单'), 'API 详情页 AI 按钮填入输入框(含接口名)', lastDraft ?? '')
+}
+
+// API 详情页:headers/query 对象格式(后端格式)可正常打开,编辑后回写对象格式
+{
+  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
+  const rootEl = await renderView(entry.component)
+  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
+  rowByText('订单服务').click()
+  await sleep(20)
+  rowByText('订单接口').click()
+  await sleep(20)
+  rowByText('创建订单').click()
+  await sleep(20)
+  // 对象格式 headers/query 不再导致 KeyValueEditor 崩溃
+  check(rootEl.textContent.includes('Headers') && rootEl.textContent.includes('Query'), '详情页 对象格式 headers/query 正常渲染', '')
+  const headerValueInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === 'application/json')
+  const queryValueInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === '1')
+  check(headerValueInput !== undefined && queryValueInput !== undefined, '详情页 对象格式转为编辑行', headerValueInput ? '' : 'header 行缺失')
+  // 编辑 header 值 → 执行请求 → 请求体里 headers 必须是对象格式(服务端执行兼容)
+  lastRunRequest = null
+  TestUtils.Simulate.change(headerValueInput, { target: { value: 'text/plain' } })
+  await sleep(10)
+  const runBtn = findAllButtons(rootEl).find((b) => b.textContent.includes('执行请求'))
+  runBtn.click()
+  await sleep(30)
+  check(lastRunRequest !== null && typeof lastRunRequest.request.headers === 'object' && !Array.isArray(lastRunRequest.request.headers)
+    && lastRunRequest.request.headers['content-type'] === 'text/plain', '编辑后执行请求 headers 为对象格式', JSON.stringify(lastRunRequest?.request?.headers))
+}
+
+// API 详情页:旧数组格式 headers(旧客户端产物)也能打开
+{
+  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
+  const rootEl = await renderView(entry.component)
+  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
+  rowByText('订单服务').click()
+  await sleep(20)
+  rowByText('无ID集合').click()
+  await sleep(20)
+  rowByText('无ID请求').click()
+  await sleep(20)
+  const oldKeyInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === 'x-old')
+  check(oldKeyInput !== undefined, '旧数组格式 headers 正常打开并渲染行', oldKeyInput ? '' : 'x-old 行缺失')
 }
 
 // ── 计划模块:AI 排计划 / 模板 / 多选弹窗 / 增量 / 复制 / 推荐补入 ──────
