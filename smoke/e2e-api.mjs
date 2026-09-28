@@ -1196,8 +1196,9 @@ check(Object.values(pkg.peerDependencies ?? {}).filter((range) => String(range).
 check(!Object.keys(pkg.peerDependencies ?? {}).includes('@deepseek-ai/dsh-client-runtime'), 'peerDependencies 不再声明已移除的基线包', JSON.stringify(Object.keys(pkg.peerDependencies ?? {})))
 const clientBundleSource = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
 check(clientBundleSource.includes('slots.inject("conversation.view"'), '客户端注册经 slots.inject 绑定槽位声明', '')
-check(clientBundleSource.includes('projections?.faceOf?.("agentPreset")'), '会话模式按宿主投影 agentPreset 判定', '')
-check(clientBundleSource.includes('useProjection?.("agentPreset")'), '组件内门控使用 useProjection 投影', '')
+check(clientBundleSource.includes('conversation.session.header.utilities'), '会话头部挂载视图门控探针(按会话判定标签可见性)', '')
+check(clientBundleSource.includes('useProjection("agentPreset")'), '门控读宿主投影 agentPreset', '')
+check(clientBundleSource.includes('const inject = ["slots"]'), '客户端只依赖 slots 服务(不再硬依赖 sessions)', '')
 
 // ── 6. 落盘检查 ──────────────────────────────────────────────────────────
 const diskFiles = await readdir(join(workspacePath, 'test-mode'), { recursive: true })

@@ -146,12 +146,19 @@ const views = [
 
 // 从模块导出读视图组件(工厂内部没有导出视图,这里直接读取 apply 里的闭包不可行;
 // 改为通过 slots.register 捕获注册的组件)。
-const registered = []
+const registered = []          // conversation.view 条目
+const gatedRegistrations = []   // 会话头部探针等其它槽条目
 let injectCalls = []
 const slotsMock = {
   register: (def, component) => {
-    registered.push({ def, component })
-    return () => {}
+    const entry = { def, component }
+    const bucket = def?.name === 'conversation.view' ? registered : gatedRegistrations
+    bucket.push(entry)
+    // 与真实槽位系统一致:注册返回的 disposer 移除该条目
+    return () => {
+      const index = bucket.indexOf(entry)
+      if (index >= 0) bucket.splice(index, 1)
+    }
   },
   // 当前客户端契约:注册经 slots.inject(ownerKey, callback) 绑定到槽位声明
   inject: (key, callback) => {
@@ -182,8 +189,29 @@ const ctxMock = {
   effect: (fn) => { fn(); return () => {} },
 }
 clientModule.apply(ctxMock)
-check(registered.length === 7, `注册了 7 个视图(实际 ${registered.length})`,
+check(injectCalls.includes('conversation.view') && injectCalls.includes('conversation.session.header.utilities'),
+  '注入视图槽与会话头部探针槽', JSON.stringify(injectCalls))
+check(registered.length === 0, '探针判定前不注册视图(门控由会话头部驱动)', registered.map((r) => r.def.id).join(','))
+// 渲染会话头部探针:它按当前会话的 agentPreset 投影注册/注销视图
+const probeEntry = gatedRegistrations.find((r) => r.def.id === 'dsh-test-mode-view-gate')
+check(probeEntry !== undefined, '会话头部挂载了视图门控探针', gatedRegistrations.map((r) => r.def.id).join(','))
+const waitTick = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms))
+const renderProbe = async (preset) => {
+  document.body.innerHTML = '<div id="root"></div>'
+  const rootEl = document.getElementById('root')
+  ReactDOM.render(react.createElement(probeEntry.component, {
+    useProjection: (key) => (key === 'agentPreset' ? preset : undefined),
+  }), rootEl)
+  await waitTick(20)
+  return rootEl
+}
+await renderProbe('dsh-test-mode')
+check(registered.length === 7, `测试模式会话注册 7 个视图(实际 ${registered.length})`,
   registered.map((r) => r.def.id).join(','))
+await renderProbe('standard')
+check(registered.length === 0, '非测试模式会话注销全部视图(标签不可见)', registered.map((r) => r.def.id).join(','))
+await renderProbe('dsh-test-mode')
+check(registered.length === 7, '切回测试模式会话重新注册 7 个视图', registered.map((r) => r.def.id).join(','))
 
 let lastDraft = null
 const viewProps = {
@@ -805,30 +833,10 @@ for (const item of cases) {
 }
 
 
-// 会话模式门控:agentPreset 是宿主会话投影(新版不是会话列表字段)
+// 会话模式内容门控:非测试模式会话渲染占位页(第二层兜底)
 {
-  // 标准模式会话 → 不注册任何视图
-  const captured = []
-  const standardCtx = {
-    slots: {
-      register: (def) => { captured.push(def.id); return () => {} },
-      inject: (key, callback) => {
-        const disposers = callback()
-        const list = Array.isArray(disposers) ? disposers : [disposers]
-        return () => { for (const dispose of list) dispose?.() }
-      },
-    },
-    sessions: {
-      list: { getSnapshot: () => ({ current: 's2', byId: {} }), subscribe: () => () => {} },
-      binding: () => ({ session: { projections: { faceOf: () => ({ getSnapshot: () => 'standard', subscribe: () => () => {} }) } } }),
-    },
-    effect: (fn) => { fn(); return () => {} },
-  }
   const saved = projectionPreset
   projectionPreset = 'standard'
-  clientModule.apply(standardCtx)
-  check(captured.length === 0, '标准模式会话不注册视图(按 agentPreset 投影判定)', captured.join(','))
-  // 非测试模式会话:视图组件渲染占位页
   const casesEntry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
   const rootEl = await renderView(casesEntry.component)
   await sleep(10)
