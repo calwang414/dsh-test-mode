@@ -11,29 +11,36 @@ dsh-test-mode/
 ├── package.json      包元数据:dsh.bundle / dsh.client 清单、peer 依赖、./preset ./skill 导出
 ├── cordis.patch.yml  插入 profile 层栈的入口(id + name)
 ├── README.md
-├── lib/              Host 端:index.js(路由 + 预设安装)、preset.js(测试模式会话行)、
+├── lib/              Host 端:index.js(路由 + 写盘校验/自动提交钩子)、preset.js(测试模式会话行)、
 │                     skill.js(技能提供者)、plugin-test.js(核心测试引擎)、
 │                     client.js(React 原生对话视图)
 ├── assets/           plugin-testing 技能正文(plugin-testing.md)
-├── presets/          测试模式的 agent.cordis.yml / preset.yml 模板(安装时写入 ~/.dsh/.agent-presets/)
 └── smoke/            测试引擎冒烟测试(真实 Cordis 运行时验证三阶段契约)
 ```
 
 ## 测试模式(会话模式)
 
-插件激活时自动在 harness 用户预设根目录创建**测试模式**:
+测试模式预设由插件包的 `cordis.patch.yml` **以 `@deepseek-ai/dsh-agent-preset` 声明行随包发布**(与 `dsh-ui-design` 同一机制),安装插件并重启后,会话模式选择器即出现「测试模式」,无需运行时写入用户预设目录:
 
-```text
-~/.dsh/.agent-presets/dsh-test-mode/
-├── preset.yml        显示名「测试模式」,与标准/设计等模式并列(顺序 6)
-└── agent.cordis.yml  模式组合:完整编码工具 + 测试工作流
+```yaml
+- insert:
+    - id: dsh-test-mode
+      name: '@calwang414/dsh-test-mode'
+    - id: preset-dsh-test-mode
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: dsh-test-mode
+        name: 测试模式
+        description: …
+        order: 6
+        plugins: [ …16 行… ]
 ```
 
 - 模式选择器里出现「测试模式」,选中后会话按该组合装载;
-- 组合里的两个会话行(安装时以插件绝对 file URL 写入):
-  - `lib/preset.js`:注册「测试工作流」system-prompt 段 + 监听 `agent/created` 自动创建 `test-mode/` 目录;
-  - `lib/skill.js`:向**本模式作用域层**注册技能提供者,只有测试模式会话能在技能目录看到并加载,其他模式不可见;
-- 组合文件只写一次;插件移动位置后自动重写路径行,用户手工编辑保留。
+- 组合里的两个会话行由包自身 `exports` 解析(无需绝对路径):
+  - `@calwang414/dsh-test-mode/preset`:注册「测试工作流」system-prompt 段 + 监听 `agent/created` 自动创建 `test-mode/` 目录;
+  - `@calwang414/dsh-test-mode/skill`:向**本模式作用域层**注册技能提供者,只有测试模式会话能在技能目录看到并加载,其他模式不可见;
+- 预设随插件包版本发布,升级插件即升级预设。
 
 ## 技能(测试模式专属)
 

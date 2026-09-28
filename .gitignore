@@ -1,6 +1,0 @@
-# 构建产物与系统杂项
-node_modules/
-dist/
-*.tgz
-.DS_Store
-*.log
