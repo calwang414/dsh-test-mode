@@ -147,10 +147,18 @@ const views = [
 // 从模块导出读视图组件(工厂内部没有导出视图,这里直接读取 apply 里的闭包不可行;
 // 改为通过 slots.register 捕获注册的组件)。
 const registered = []
+let injectCalls = []
 const slotsMock = {
   register: (def, component) => {
     registered.push({ def, component })
     return () => {}
+  },
+  // 当前客户端契约:注册经 slots.inject(ownerKey, callback) 绑定到槽位声明
+  inject: (key, callback) => {
+    injectCalls.push(key)
+    const disposers = callback()
+    const list = Array.isArray(disposers) ? disposers : [disposers]
+    return () => { for (const dispose of list) dispose?.() }
   },
 }
 const sessionsMock = {

@@ -1185,6 +1185,17 @@ const statusAfterNoop = git(['status', '--porcelain'])
 check(statusAfterNoop.includes('auto-bad.json'), 'blocked invalid file never swept into commits', statusAfterNoop.trim())
 await rm(gitWs, { recursive: true, force: true })
 
+// ── 5.11 客户端 manifest 契约:基线包不得声明(新版 DSH 删除了 client-runtime) ──
+console.log('\n=== 客户端 manifest 契约 ===')
+const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const clientInject = pkg.dsh?.client?.inject ?? []
+check(Array.isArray(clientInject) && clientInject.includes('@deepseek-ai/dsh-client-ui-conversation'), 'client.inject 声明会话视图所属包', JSON.stringify(clientInject))
+check(!clientInject.includes('@deepseek-ai/dsh-client-runtime'), 'client.inject 不再声明已移除的基线包 dsh-client-runtime', JSON.stringify(clientInject))
+check(!Object.keys(pkg.peerDependencies ?? {}).includes('@deepseek-ai/dsh-client-runtime'), 'peerDependencies 不再声明已移除的基线包', JSON.stringify(Object.keys(pkg.peerDependencies ?? {})))
+const clientBundleSource = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+check(clientBundleSource.includes('slots.inject("conversation.view"'), '客户端注册经 slots.inject 绑定槽位声明', '')
+check(clientBundleSource.includes('ctx.sessions?.list'), '会话清单访问容错(契约变化时不整块失败)', '')
+
 // ── 6. 落盘检查 ──────────────────────────────────────────────────────────
 const diskFiles = await readdir(join(workspacePath, 'test-mode'), { recursive: true })
 console.log('\n=== 落盘 ===')

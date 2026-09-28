@@ -1,6 +1,6 @@
 {
   "name": "@calwang414/dsh-test-mode",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "测试模式插件:在 DSH 对话中提供动态插件测试(装载→快照→场景断言→清理断言)、测试用例管理与 API 测试能力。参考 dsh-ui-design 的插件工程形态实现。",
   "license": "MIT",
   "type": "module",
@@ -19,10 +19,9 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-runtime": ">=0.0.1-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-client-ui-conversation": ">=0.0.1-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-host-webserver": ">=0.0.1-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-workspace": ">=0.0.1-rc.1 <0.2.0-0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc.1 <0.2.0-0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.1 <0.2.0-0",
+    "@deepseek-ai/dsh-workspace": ">=0.1.0-rc.1 <0.2.0-0",
     "react": "^18.2.0"
   },
   "dsh": {
@@ -32,7 +31,6 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
