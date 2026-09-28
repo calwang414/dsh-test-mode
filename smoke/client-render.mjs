@@ -161,11 +161,20 @@ const slotsMock = {
     return () => { for (const dispose of list) dispose?.() }
   },
 }
+// 会话投影(agentPreset):新版客户端里该值来自宿主会话投影,不是会话列表字段
+let projectionPreset = 'dsh-test-mode'
+const projectionFace = {
+  getSnapshot: () => projectionPreset,
+  subscribe: () => () => {},
+}
 const sessionsMock = {
   list: {
-    getSnapshot: () => ({ current: 's1', byId: { s1: { agentPreset: 'dsh-test-mode' } } }),
+    getSnapshot: () => ({ current: 's1', byId: { s1: { sessionId: 's1' } } }),
     subscribe: () => () => {},
   },
+  binding: (id) => (id === 's1'
+    ? { sessionId: 's1', session: { projections: { faceOf: (key) => (key === 'agentPreset' ? projectionFace : undefined) } } }
+    : undefined),
 }
 const ctxMock = {
   slots: slotsMock,
@@ -179,6 +188,7 @@ check(registered.length === 7, `注册了 7 个视图(实际 ${registered.length
 let lastDraft = null
 const viewProps = {
   sessionId: 's1',
+  useProjection: (key) => (key === 'agentPreset' ? projectionPreset : undefined),
   useWorkspaces: (selector) => selector({ items: [{ workspaceId: 'ws-1', sessionIds: ['s1'] }] }),
   inputActions: { setDraft: (text) => { lastDraft = text } },
 }
@@ -792,6 +802,38 @@ for (const item of cases) {
   viewButtons[viewButtons.length - 1].click() // 列表尾部的 rep2(有失败结果)
   await sleep(40)
   check(rootEl.textContent.includes('本版本已变更'), '报告详情 失败项归因徽章(本版本已变更)', rootEl.textContent.slice(0, 200))
+}
+
+
+// 会话模式门控:agentPreset 是宿主会话投影(新版不是会话列表字段)
+{
+  // 标准模式会话 → 不注册任何视图
+  const captured = []
+  const standardCtx = {
+    slots: {
+      register: (def) => { captured.push(def.id); return () => {} },
+      inject: (key, callback) => {
+        const disposers = callback()
+        const list = Array.isArray(disposers) ? disposers : [disposers]
+        return () => { for (const dispose of list) dispose?.() }
+      },
+    },
+    sessions: {
+      list: { getSnapshot: () => ({ current: 's2', byId: {} }), subscribe: () => () => {} },
+      binding: () => ({ session: { projections: { faceOf: () => ({ getSnapshot: () => 'standard', subscribe: () => () => {} }) } } }),
+    },
+    effect: (fn) => { fn(); return () => {} },
+  }
+  const saved = projectionPreset
+  projectionPreset = 'standard'
+  clientModule.apply(standardCtx)
+  check(captured.length === 0, '标准模式会话不注册视图(按 agentPreset 投影判定)', captured.join(','))
+  // 非测试模式会话:视图组件渲染占位页
+  const casesEntry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
+  const rootEl = await renderView(casesEntry.component)
+  await sleep(10)
+  check(rootEl.textContent.includes('仅在测试模式会话中可用'), '非测试模式会话显示占位页', rootEl.textContent.slice(0, 120))
+  projectionPreset = saved
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

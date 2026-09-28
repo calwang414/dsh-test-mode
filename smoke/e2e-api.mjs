@@ -1191,10 +1191,13 @@ const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url
 const clientInject = pkg.dsh?.client?.inject ?? []
 check(Array.isArray(clientInject) && clientInject.includes('@deepseek-ai/dsh-client-ui-conversation'), 'client.inject 声明会话视图所属包', JSON.stringify(clientInject))
 check(!clientInject.includes('@deepseek-ai/dsh-client-runtime'), 'client.inject 不再声明已移除的基线包 dsh-client-runtime', JSON.stringify(clientInject))
+check(['@deepseek-ai/dsh-client-ui-renderer', '@deepseek-ai/dsh-client-ui-session', '@deepseek-ai/dsh-client-ui-workspace'].every((name) => clientInject.includes(name)), 'client.inject 声明服务提供包(renderer/session/workspace)', JSON.stringify(clientInject))
+check(Object.values(pkg.peerDependencies ?? {}).filter((range) => String(range).includes('dsh-client')).every((range) => String(range).includes('0.1.7-rc.2')), '客户端 peer 范围对齐当前契约(>=0.1.7-rc.2)', JSON.stringify(pkg.peerDependencies))
 check(!Object.keys(pkg.peerDependencies ?? {}).includes('@deepseek-ai/dsh-client-runtime'), 'peerDependencies 不再声明已移除的基线包', JSON.stringify(Object.keys(pkg.peerDependencies ?? {})))
 const clientBundleSource = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
 check(clientBundleSource.includes('slots.inject("conversation.view"'), '客户端注册经 slots.inject 绑定槽位声明', '')
-check(clientBundleSource.includes('ctx.sessions?.list'), '会话清单访问容错(契约变化时不整块失败)', '')
+check(clientBundleSource.includes('projections?.faceOf?.("agentPreset")'), '会话模式按宿主投影 agentPreset 判定', '')
+check(clientBundleSource.includes('useProjection?.("agentPreset")'), '组件内门控使用 useProjection 投影', '')
 
 // ── 6. 落盘检查 ──────────────────────────────────────────────────────────
 const diskFiles = await readdir(join(workspacePath, 'test-mode'), { recursive: true })
