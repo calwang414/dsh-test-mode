@@ -13,13 +13,42 @@
  */
 
 import { createServer } from 'node:http'
+import { existsSync, readdirSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+
+/**
+ * 解析 harness 包根(node_modules 目录):优先 DSH_HARNESS_ROOT,再探测常见安装位置。
+ * 桌面版把 harness 打进 app.asar 后 shell 不可读,因此找不到时明确跳过而不是崩溃。
+ * @returns node_modules 绝对路径或 null。
+ */
+function resolveHarnessRoot() {
+  const candidates = []
+  if (process.env.DSH_HARNESS_ROOT) candidates.push(process.env.DSH_HARNESS_ROOT)
+  candidates.push('/Applications/DeepSeek Harness.app/Contents/Resources/resources/harness/node_modules')
+  candidates.push(join(here, '../../../node_modules'))
+  const npxRoot = join(process.env.HOME ?? '', '.npm/_npx')
+  if (existsSync(npxRoot)) {
+    for (const dir of readdirSync(npxRoot)) candidates.push(join(npxRoot, dir, 'node_modules'))
+  }
+  return candidates.find((root) => existsSync(join(root, '@deepseek-ai/cordis/lib/index.js'))) ?? null
+}
+
+const HARNESS_ROOT = resolveHarnessRoot()
+if (HARNESS_ROOT === null) {
+  console.log('SKIP: 未找到 harness 包根;设置 DSH_HARNESS_ROOT=<含 @deepseek-ai/* 的 node_modules> 后重跑')
+  process.exit(0)
+}
+const { Context } = await import(pathToFileURL(join(HARNESS_ROOT, '@deepseek-ai/cordis/lib/index.js')).href)
+const { SystemPrompt } = await import(pathToFileURL(join(HARNESS_ROOT, '@deepseek-ai/dsh-system-prompt/lib/index.js')).href)
+const { ToolRuntime } = await import(pathToFileURL(join(HARNESS_ROOT, '@deepseek-ai/dsh-tools/lib/index.js')).href)
+
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { Context } from '/Applications/DeepSeek Harness.app/Contents/Resources/resources/harness/node_modules/@deepseek-ai/cordis/lib/index.js'
-import { SystemPrompt } from '/Applications/DeepSeek Harness.app/Contents/Resources/resources/harness/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js'
-import { ToolRuntime } from '/Applications/DeepSeek Harness.app/Contents/Resources/resources/harness/node_modules/@deepseek-ai/dsh-tools/lib/index.js'
 import { apply, inject, validateTestModeFile } from '../lib/index.js'
 
 let failed = 0

@@ -4,10 +4,39 @@
  * (需要本地能解析 @deepseek-ai/cordis 等包;本文件用绝对路径指向 harness 安装)
  */
 
-import { Context } from '/Applications/DeepSeek Harness.app/Contents/Resources/resources/harness/node_modules/@deepseek-ai/cordis/lib/index.js'
-import { SystemPrompt } from '/Applications/DeepSeek Harness.app/Contents/Resources/resources/harness/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js'
-import { ToolRuntime } from '/Applications/DeepSeek Harness.app/Contents/Resources/resources/harness/node_modules/@deepseek-ai/dsh-tools/lib/index.js'
 import { runPluginSuite } from '../lib/plugin-test.js'
+import { existsSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+
+/**
+ * 解析 harness 包根(node_modules 目录):优先 DSH_HARNESS_ROOT,再探测常见安装位置。
+ * 桌面版把 harness 打进 app.asar 后 shell 不可读,因此找不到时明确跳过而不是崩溃。
+ * @returns node_modules 绝对路径或 null。
+ */
+function resolveHarnessRoot() {
+  const candidates = []
+  if (process.env.DSH_HARNESS_ROOT) candidates.push(process.env.DSH_HARNESS_ROOT)
+  candidates.push('/Applications/DeepSeek Harness.app/Contents/Resources/resources/harness/node_modules')
+  candidates.push(join(here, '../../../node_modules'))
+  const npxRoot = join(process.env.HOME ?? '', '.npm/_npx')
+  if (existsSync(npxRoot)) {
+    for (const dir of readdirSync(npxRoot)) candidates.push(join(npxRoot, dir, 'node_modules'))
+  }
+  return candidates.find((root) => existsSync(join(root, '@deepseek-ai/cordis/lib/index.js'))) ?? null
+}
+
+const HARNESS_ROOT = resolveHarnessRoot()
+if (HARNESS_ROOT === null) {
+  console.log('SKIP: 未找到 harness 包根;设置 DSH_HARNESS_ROOT=<含 @deepseek-ai/* 的 node_modules> 后重跑')
+  process.exit(0)
+}
+const { Context } = await import(pathToFileURL(join(HARNESS_ROOT, '@deepseek-ai/cordis/lib/index.js')).href)
+const { SystemPrompt } = await import(pathToFileURL(join(HARNESS_ROOT, '@deepseek-ai/dsh-system-prompt/lib/index.js')).href)
+const { ToolRuntime } = await import(pathToFileURL(join(HARNESS_ROOT, '@deepseek-ai/dsh-tools/lib/index.js')).href)
+
 
 // 被测插件:注册一个工具、一个服务、一个事件监听(全部是 ctx 效果,dispose 应清理)
 const GOOD_SOURCE = `
