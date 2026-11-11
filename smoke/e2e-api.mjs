@@ -1229,6 +1229,32 @@ check(clientBundleSource.includes('conversation.session.header.utilities'), '会
 check(clientBundleSource.includes('useProjection("agentPreset")'), '门控读宿主投影 agentPreset', '')
 check(clientBundleSource.includes('const inject = ["slots"]'), '客户端只依赖 slots 服务(不再硬依赖 sessions)', '')
 
+// ── 5.12 预设 prompt 段:不得引用未注册的 {{variable}}(运行时只注册 provider/model) ──
+console.log('\n=== 预设 prompt 段占位符 ===')
+{
+  const captured = []
+  const presetCtx = {
+    effect: (fn) => { fn(); return () => {} },
+    on: () => () => {},
+    logger: { warn: () => {} },
+    systemPrompt: {
+      section: (definition) => { captured.push(definition); return () => {} },
+    },
+  }
+  const { apply: applyPreset } = await import('../lib/preset.js')
+  applyPreset(presetCtx)
+  const sections = captured.filter((item) => item?.name === 'dsh-test-mode.workflow')
+  check(sections.length === 1, '预设注册了 workflow 段', JSON.stringify(captured.map((s) => s?.name)))
+  const workflowText = typeof sections[0]?.text === 'function' ? sections[0].text() : String(sections[0]?.text ?? '')
+  const placeholders = [...workflowText.matchAll(/\{\{[^}]*\}\}/g)].map((match) => match[0])
+  check(placeholders.length === 0, 'workflow 段不含未注册的 {{variable}} 占位符', placeholders.join(','))
+  check(workflowText.includes('test-mode/'), 'workflow 段仍指明共享项目目录', '')
+  // 补丁里的 prompt 文本(如 persona prefix/suffix)同样只能引用已注册变量
+  const patchSource = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+  const patchTokens = [...patchSource.matchAll(/\{\{[^}]*\}\}/g)].map((match) => match[0])
+  check(patchTokens.every((token) => token === '{{model}}'), '补丁内 prompt 占位符仅使用已注册的 {{model}}', patchTokens.join(','))
+}
+
 // ── 6. 落盘检查 ──────────────────────────────────────────────────────────
 const diskFiles = await readdir(join(workspacePath, 'test-mode'), { recursive: true })
 console.log('\n=== 落盘 ===')

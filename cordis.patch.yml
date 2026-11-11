@@ -31,7 +31,7 @@
                 You are a testing agent powered by the {{model}} model. You write
                 and run dynamic-plugin tests, manage test cases, and exercise API
                 requests, as real editable files in the shared test-mode/ project.
-              suffix: Your working directory is {{cwd}}.
+              suffix: Your working directory is the session workspace root.
 
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
