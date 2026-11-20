@@ -92,6 +92,24 @@ const mock = createServer((req, res) => {
     res.end(JSON.stringify({ code: 500, message: 'boom' }))
     return
   }
+  if (req.url === '/ui/login') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    res.end(`<!doctype html><html><head><meta charset="utf-8"><title>登录页</title></head><body>
+      <h1>登录</h1>
+      <input id="username" name="username" placeholder="用户名" />
+      <button id="login-btn" data-testid="login-submit">登录</button>
+      <button id="reset-btn" type="button">重置</button>
+      <div id="result"></div>
+      <script>
+        document.getElementById('login-btn').addEventListener('click', () => {
+          document.getElementById('result').textContent = '欢迎 ' + (document.getElementById('username').value || '访客');
+          location.hash = '#done';
+        });
+        document.getElementById('reset-btn').addEventListener('click', () => { document.getElementById('result').textContent = '' });
+      </script>
+    </body></html>`)
+    return
+  }
   res.writeHead(404, { 'content-type': 'application/json' })
   res.end(JSON.stringify({ code: 404 }))
 })
@@ -813,76 +831,99 @@ check(genDelete.status === 200 && genDelete.body.ok, 'delete generator', JSON.st
 const genListAfter = await api('GET', '/api/datafactory', undefined, { workspaceId })
 check(genListAfter.body.generators.filter((g) => !g.builtin).length === 1, 'custom generator gone after delete (builtins remain)', JSON.stringify(genListAfter.body.generators.filter((g) => !g.builtin).length))
 
-// ── 10. UI 自动化(脚本/元素 CRUD + 执行) ────────────────────────────────
+// ── 10. UI 自动化(脚本/元素 CRUD + Playwright 执行) ────────────────────
 console.log('\n=== UI 自动化 ===')
+const uiPage = `${baseUrl}/ui/login`
 // 元素库 CRUD
-const uiEl = await api('POST', '/api/ui/elements', { workspaceId, key: 'login-btn', selector: '#login-btn', page: '/login', description: '登录按钮' })
+const uiEl = await api('POST', '/api/ui/elements', { workspaceId, key: 'login-btn', selector: '[data-testid="login-submit"]', page: '/ui/login', description: '登录按钮' })
 check(uiEl.status === 200 && uiEl.body.ok, 'create ui element', JSON.stringify(uiEl.body))
 const uiElId = uiEl.body.element.id
+await api('POST', '/api/ui/elements', { workspaceId, key: 'login-user', selector: '#username', page: '/ui/login', description: '用户名' })
+await api('POST', '/api/ui/elements', { workspaceId, key: 'login-result', selector: '#result', page: '/ui/login', description: '结果区' })
+const uiElTemp = await api('POST', '/api/ui/elements', { workspaceId, key: 'tmp-del', selector: '#tmp-del', page: '/ui/login', description: '临时元素' })
 const uiElList = await api('GET', '/api/ui/elements', undefined, { workspaceId })
-check(uiElList.status === 200 && uiElList.body.elements.length === 1, 'list ui elements', JSON.stringify(uiElList.body))
+check(uiElList.status === 200 && uiElList.body.elements.length === 4, 'list ui elements', JSON.stringify(uiElList.body.elements.length))
 const uiElBad = await api('POST', '/api/ui/elements', { workspaceId, key: 'Bad Key', selector: '#x' })
 check(uiElBad.status === 400, 'invalid element key rejected', JSON.stringify(uiElBad.body))
 
 // 脚本 CRUD
 const uiScript = await api('POST', '/api/ui/scripts', { workspaceId, name: '登录流程', steps: [
-  { kind: 'open', url: 'https://example.com/login' },
-  { kind: 'type', element: 'login-btn', text: '{{factory.username}}' },
+  { kind: 'open', url: uiPage, name: '打开登录页' },
+  { kind: 'assert_title', expect: '登录页' },
+  { kind: 'type', element: 'login-user', text: 'alice' },
   { kind: 'click', element: 'login-btn' },
-  { kind: 'assert_text', element: 'login-btn', expect: '登录' },
+  { kind: 'assert_text', element: 'login-result', expect: '欢迎 alice' },
+  { kind: 'assert_url', expect: '#done' },
+  { kind: 'assert_element', element: 'login-result' },
+  { kind: 'eval', expression: 'document.title', exportAs: 'UI_PAGE_TITLE' },
+  { kind: 'screenshot', path: 'ui/screenshots/e2e-login.png' },
 ] })
 check(uiScript.status === 200 && uiScript.body.ok, 'create ui script', JSON.stringify(uiScript.body))
 const uiScriptId = uiScript.body.script.id
 const uiScriptList = await api('GET', '/api/ui/scripts', undefined, { workspaceId })
 check(uiScriptList.status === 200 && uiScriptList.body.scripts.length === 1, 'list ui scripts', JSON.stringify(uiScriptList.body))
 
-// 执行:e2e 环境无 browser 工具,第一步(open)应失败并停止,报告落盘
+// 执行:Host 半 Playwright + 系统 Chrome 真实驱动
 const uiRun = await api('POST', '/api/ui/run', { workspaceId, scriptId: uiScriptId })
 check(uiRun.status === 200 && uiRun.body.ok, 'ui run api ok', JSON.stringify(uiRun.body))
-check(uiRun.body.report.summary?.total === 1, 'ui run stops at first failing step', JSON.stringify(uiRun.body.report.summary))
-check(uiRun.body.report.results?.[0]?.pass === false, 'ui step fails without browser tools', JSON.stringify(uiRun.body.report.results?.[0]))
+check(uiRun.body.report.summary?.total === 9 && uiRun.body.report.summary?.failed === 0, 'ui run passes all steps (playwright)', JSON.stringify(uiRun.body.report.summary))
+check(uiRun.body.report.driver?.engine === 'playwright' && typeof uiRun.body.report.driver?.version === 'string', 'ui report records playwright driver', JSON.stringify(uiRun.body.report.driver))
+check(uiRun.body.report.exports?.UI_PAGE_TITLE === '登录页', 'ui eval exportAs produces export', JSON.stringify(uiRun.body.report.exports))
 check(uiRun.body.report.kind === 'ui', 'ui report kind', uiRun.body.report.kind)
+const uiShots = await readdir(join(workspacePath, 'test-mode', 'ui', 'screenshots')).catch(() => [])
+check(uiShots.includes('e2e-login.png'), 'ui screenshot written under test-mode root', JSON.stringify(uiShots))
 const uiReportId = uiRun.body.report.id
+
+// 失败路径:断言不匹配 → 报告失败 + 自动截图
+const uiFailScript = await api('POST', '/api/ui/scripts', { workspaceId, name: '断言失败', steps: [
+  { kind: 'open', url: uiPage },
+  { kind: 'assert_text', element: 'login-result', expect: '不会出现的文案' },
+] })
+const uiFailRun = await api('POST', '/api/ui/run', { workspaceId, scriptId: uiFailScript.body.script.id })
+check(uiFailRun.status === 200 && uiFailRun.body.report.summary?.failed === 1, 'ui assertion failure reported', JSON.stringify(uiFailRun.body.report.summary))
+const uiFailStep = uiFailRun.body.report.results?.[1]
+check(typeof uiFailStep?.error === 'string' && uiFailStep.error.includes('expected text'), 'ui failure carries assertion detail', JSON.stringify(uiFailStep))
+check(typeof uiFailStep?.screenshot === 'string' && uiFailStep.screenshot.includes('ui/screenshots/fail-'), 'ui failure captures screenshot', JSON.stringify(uiFailStep?.screenshot))
+
+// 页面元素探测(POST /api/ui/probe):AI 生成元素库/脚本用,不再依赖会话浏览器工具
+const uiProbe = await api('POST', '/api/ui/probe', { url: uiPage })
+check(uiProbe.status === 200 && uiProbe.body.ok, 'ui probe ok', JSON.stringify(uiProbe.body))
+check(uiProbe.body.title === '登录页', 'ui probe returns title', JSON.stringify(uiProbe.body.title))
+check(uiProbe.body.elements?.some((item) => item.testId === 'login-submit') && uiProbe.body.elements?.some((item) => item.id === 'username'), 'ui probe returns interactive elements', JSON.stringify((uiProbe.body.elements ?? []).slice(0, 3)))
 
 // 报告可查(报告 tab 可见 UI 报告)
 const uiReports = await api('GET', '/api/reports', undefined, { workspaceId })
 check(uiReports.body.reports.some((r) => r.id === uiReportId && r.kind === 'ui'), 'ui report in reports list', JSON.stringify(uiReports.body.reports.map((r) => r.kind)))
 
-// 引擎通过路径(直接调 executeUiScript + mock tools)
+// 引擎直调:真实 Playwright 通过/失败路径
 const { executeUiScript } = await import('../lib/ui-test.js')
-let mockPage = { href: 'https://example.com/login', title: '登录页' }
-const mockTools = {
-  execute: async ({ name, arguments: args }) => {
-    if (name === 'browser_navigate') { mockPage.href = args.url; mockPage.title = '新页面'; return { isError: false, value: { ok: true } } }
-    if (name === 'browser_eval') {
-      const expr = args.expression
-      if (expr.includes('HTMLInputElement.prototype')) return { isError: false, value: { ok: true, value: 'u123' } }
-      if (expr.includes('MouseEvent')) return { isError: false, value: { ok: true, x: 1, y: 2 } }
-      if (expr.includes('el.textContent')) return { isError: false, value: '登录' }
-      if (expr === 'location.href') return { isError: false, value: mockPage.href }
-      if (expr === 'document.title') return { isError: false, value: mockPage.title }
-      return { isError: false, value: expr }
-    }
-    return { isError: true, content: [{ type: 'text', text: 'no tool ' + name }] }
-  },
-}
-const mockCtx = { get: (n) => (n === 'tools' ? mockTools : undefined) }
-const mockReport = await executeUiScript(mockCtx, {
-  name: '登录流程',
+const uiElements = { 'login-user': '#username', 'login-btn': '[data-testid="login-submit"]', 'login-result': '#result' }
+const engineReport = await executeUiScript({}, {
+  name: '引擎直调',
   steps: [
-    { kind: 'open', url: 'https://example.com/login' },
-    { kind: 'assert_title', expect: '新页面' },
-    { kind: 'type', element: 'login-btn', text: '{{factory.username}}' },
+    { kind: 'open', url: uiPage },
+    { kind: 'type', element: 'login-user', text: 'bob' },
     { kind: 'click', element: 'login-btn' },
-    { kind: 'assert_text', element: 'login-btn', expect: '登录' },
-    { kind: 'eval', expression: "localStorage.getItem('token')", exportAs: 'UI_TOKEN' },
+    { kind: 'assert_text', element: 'login-result', expect: '欢迎 bob' },
+    { kind: 'eval', expression: 'document.title', exportAs: 'ENGINE_TITLE' },
   ],
-}, { 'login-btn': '#login-btn' }, {}, { username: 'user123' })
-check(mockReport.summary?.passed === 6 && mockReport.summary?.failed === 0, 'ui engine pass path (mock tools)', JSON.stringify(mockReport.summary))
-check(mockReport.exports?.UI_TOKEN !== undefined, 'ui eval exportAs produces export', JSON.stringify(mockReport.exports))
+}, uiElements, {}, {})
+check(engineReport.summary?.passed === 5 && engineReport.summary?.failed === 0, 'ui engine pass path (playwright)', JSON.stringify(engineReport.summary))
+check(engineReport.driver?.engine === 'playwright', 'ui engine reports driver info', JSON.stringify(engineReport.driver))
+check(engineReport.exports?.ENGINE_TITLE === '登录页', 'ui engine exportAs', JSON.stringify(engineReport.exports))
+const engineFail = await executeUiScript({}, {
+  name: '引擎失败',
+  steps: [
+    { kind: 'open', url: uiPage },
+    { kind: 'click', selector: '#not-exist', timeoutMs: 1500 },
+  ],
+}, {}, {}, {})
+const engineFailStep = engineFail.results?.[1]
+check(engineFail.summary?.failed === 1, 'ui engine failure path', JSON.stringify(engineFail.summary))
+check(typeof engineFailStep?.error === 'string' && /Timeout|waiting/i.test(engineFailStep.error), 'ui engine failure carries playwright timeout detail', JSON.stringify(engineFailStep?.error))
 
 // 脚本/元素删除
-const uiElDel = await api('DELETE', `/api/ui/elements/${uiElId}`, undefined, { workspaceId })
+const uiElDel = await api('DELETE', `/api/ui/elements/${uiElTemp.body.element.id}`, undefined, { workspaceId })
 check(uiElDel.status === 200 && uiElDel.body.ok, 'delete ui element', JSON.stringify(uiElDel.body))
 const uiScriptDel = await api('DELETE', `/api/ui/scripts/${uiScriptId}`, undefined, { workspaceId })
 check(uiScriptDel.status === 200 && uiScriptDel.body.ok, 'delete ui script', JSON.stringify(uiScriptDel.body))
@@ -891,8 +932,10 @@ check(uiScriptDel.status === 200 && uiScriptDel.body.ok, 'delete ui script', JSO
 console.log('\n=== 混合用例(API + UI) ===')
 // 重新建一个 UI 脚本和一个混合用例
 const mixUiScript = await api('POST', '/api/ui/scripts', { workspaceId, name: 'UI 登录', steps: [
-  { kind: 'open', url: 'https://example.com/login' },
+  { kind: 'open', url: uiPage },
+  { kind: 'type', element: 'login-user', text: 'bob' },
   { kind: 'click', element: 'login-btn' },
+  { kind: 'assert_text', element: 'login-result', expect: '欢迎 bob' },
 ] })
 const mixUiScriptId = mixUiScript.body.script.id
 const mixCase = await api('POST', '/api/cases', { workspaceId, name: '端到端登录', steps: [
@@ -903,30 +946,16 @@ const mixCase = await api('POST', '/api/cases', { workspaceId, name: '端到端�
 check(mixCase.status === 200 && mixCase.body.ok, 'create mixed case', JSON.stringify(mixCase.body))
 const mixCaseId = mixCase.body.case.id
 
-// 执行:无 browser 工具时 UI 步骤应失败(而非被跳过),API 步骤不执行(失败即停)
+// 执行:UI 步骤真实通过(Playwright),API 步骤真实请求,手工步骤跳过
 const mixRun = await api('POST', `/api/cases/${mixCaseId}/run`, { workspaceId, environmentId: envId })
 check(mixRun.status === 200 && mixRun.body.ok, 'mixed case run ok', JSON.stringify(mixRun.body))
 check(mixRun.body.report.results?.[0]?.kind === 'ui', 'first step is ui kind', JSON.stringify(mixRun.body.report.results?.[0]))
-check(mixRun.body.report.results?.[0]?.pass === false, 'ui step fails without browser', JSON.stringify(mixRun.body.report.results?.[0]?.error))
+check(mixRun.body.report.results?.[0]?.pass === true, 'ui step passes with playwright', JSON.stringify(mixRun.body.report.results?.[0]?.error))
+check(mixRun.body.report.results?.[1]?.kind === 'request' && mixRun.body.report.results?.[1]?.status === 200, 'api step passes after ui', JSON.stringify(mixRun.body.report.results?.[1]))
 check(mixRun.body.report.summary?.skipped === 1, 'manual step skipped', JSON.stringify(mixRun.body.report.summary))
 
-// 引擎通过路径:mock tools + 直接 executeCase(验证 UI/API 混合顺序与结果)
+// 引擎混合路径:executeCase + 真实 executeUiScript 验证顺序与结果
 const { executeCase } = await import('../lib/api-test.js')
-let mixPage = { href: 'https://example.com/login' }
-const mixTools = {
-  execute: async ({ name, arguments: args }) => {
-    if (name === 'browser_navigate') { mixPage.href = args.url; return { isError: false, value: { ok: true } } }
-    if (name === 'browser_eval') {
-      const expr = args.expression
-      if (expr.includes('MouseEvent')) return { isError: false, value: { ok: true, x: 1, y: 2 } }
-      if (expr === 'location.href') return { isError: false, value: mixPage.href }
-      return { isError: false, value: expr }
-    }
-    return { isError: true, content: [{ type: 'text', text: 'no tool ' + name }] }
-  },
-}
-const mixCtx = { get: (n) => (n === 'tools' ? mixTools : undefined) }
-// 复用前面项目里的请求解析器逻辑:直接构造 resolveRef 模拟
 const mixedReport = await executeCase(
   { name: '端到端', steps: [
     { action: 'UI', uiRef: { scriptId: 's1' } },
@@ -934,7 +963,7 @@ const mixedReport = await executeCase(
   ] },
   async (ref) => {
     if (ref.scriptId) {
-      return { kind: 'ui', script: { id: 's1', name: 'UI 登录', steps: [{ kind: 'open', url: 'https://example.com/login' }] }, elements: {} }
+      return { kind: 'ui', script: { id: 's1', name: 'UI 登录', steps: [{ kind: 'open', url: uiPage }] }, elements: {} }
     }
     return {
       kind: 'request',
@@ -945,9 +974,7 @@ const mixedReport = await executeCase(
   {},
   {},
   async (script, elements) => {
-    // runUi 用 mock tools 执行
-    const { executeUiScript } = await import('../lib/ui-test.js')
-    const report = await executeUiScript(mixCtx, script, elements, {}, {})
+    const report = await executeUiScript({}, script, elements, {}, {})
     return { ok: report.summary.failed === 0, durationMs: report.durationMs, error: report.summary.failed ? 'ui failed' : undefined, steps: report.results }
   },
 )

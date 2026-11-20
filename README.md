@@ -132,15 +132,19 @@ dsh-test-mode/
   - **复制**、**重跑上次失败**(只跑失败条目)、**智能推荐**(最近失败接口覆盖的用例一键补入);
   - **AI 生成 · 排计划**:描述意图(全量/增量/按模块),智能体读变更清单与项目文件后直接生成计划文件。
 
-## UI 自动化(引擎:dsh-cdp-browser)
+## UI 自动化(引擎:Playwright + 系统 Chrome)
 
-UI 脚本驱动受控 Chrome(通过 tools 服务调用 dsh-cdp-browser 的 browser_* 工具,需该插件已激活):
+UI 脚本由 Host 半内置的 Playwright(`playwright-core`)直接驱动**系统 Chrome**,不依赖会话里的浏览器工具、不需要额外浏览器插件:
 
-- **脚本**:`test-mode/ui/scripts/<id>.json`,步骤序列——open(导航)、click/type(元素定位)、press(按键)、assert_text/assert_url/assert_title/assert_element(断言)、eval(任意 JS)、wait(等待)、screenshot(截图);
+- **运行环境**:`playwright-core` 随插件安装(无浏览器下载、无安装脚本),默认 `channel: 'chrome'` 复用系统 Google Chrome,headless 执行;
+  - `DSH_TEST_BROWSER_EXECUTABLE` 指定 Chrome/Chromium 可执行文件(优先级最高);
+  - `DSH_TEST_BROWSER_CHANNEL=chrome|msedge` 选择浏览器;`DSH_TEST_BROWSER_HEADFUL=1` 有头执行(调试用);
+- **脚本**:`test-mode/ui/scripts/<id>.json`,步骤序列——open(导航)、click/type(元素定位,自动等待可操作性)、press(按键)、assert_text/assert_url/assert_title/assert_element(断言)、eval(任意 JS,`exportAs` 导出变量)、wait(等待)、screenshot(截图);
 - **元素库**:`test-mode/ui/elements.json` 单文件,`{ key, selector, page, description }` — 脚本步骤用 `element: <key>` 引用,可复用;
-- **定位**:click/type 通过 browser_eval 执行 querySelector + 原生事件/原生 setter(React 受控输入兼容);
+- **页面元素探测**:`POST /api/ui/probe { url }` — 服务端用 Playwright 打开页面并返回候选交互元素(tag/文本/id/name/testid/role/css),供 AI 生成元素库/脚本(替代在会话里调用浏览器工具);
+- **失败取证**:断言/动作失败自动截图(落在 `test-mode/ui/screenshots/`),并附带 console 错误、页面异常、失败请求诊断;
 - **联动**:text/url/expression 支持 `{{VAR}}`、`{{rand.*}}`、`{{factory.<key>}}` 数据工厂;
-- **API**:`GET/POST /api/ui/scripts`、`GET/PUT/DELETE /api/ui/scripts/:id`;`GET/POST /api/ui/elements`、`GET/PUT/DELETE /api/ui/elements/:id`;`POST /api/ui/run`(执行脚本,失败默认停止,`continueOnError` 继续);
+- **API**:`GET/POST /api/ui/scripts`、`GET/PUT/DELETE /api/ui/scripts/:id`;`GET/POST /api/ui/elements`、`GET/PUT/DELETE /api/ui/elements/:id`;`POST /api/ui/run`(执行脚本,失败默认停止,`continueOnError` 继续)、`POST /api/ui/probe`;报告的 `driver` 字段记录引擎/浏览器版本/是否 headless;
 - **报告**:UI 执行结果写入 `test-mode/reports/`(kind: ui),历史 tab 可回看。
 
 ## 执行报告
