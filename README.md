@@ -71,7 +71,7 @@ dsh-test-mode/
 
 - **Host 端**(`lib/index.js`):注册 `/dsh-test-mode/api/run` JSON API——接收 `{ name, source, assertions }`,源码求值(vm 沙箱,与 `cordis_define` 的 code.host 同形),在隔离作用域装载、断言、卸载,返回三阶段报告;
 - **测试引擎**(`lib/plugin-test.js`):`ctx.plugin()` 返回的 fiber 提供作用域隔离与卸载;`tools.schemas()` 做基线对比;`ctx.on` 探针验证事件通路;
-- **客户端**(`lib/client.js`):注册「测试」对话视图标签(React 原生,无 iframe),跟随当前会话——只有当前会话是测试模式时才注册,切到其他模式立即注销(与 ui-design 同门控);
+- **客户端**(`lib/client.js`):注册测试模式的对话视图标签(React 原生,无 iframe;顶层:基础配置 / 组件测试 / 用例 / 计划 / 报告,组件测试内含「接口」「UI 脚本」子标签),跟随当前会话——只有当前会话是测试模式时才注册,切到其他模式立即注销(与 ui-design 同门控);
 - **会话行**(`lib/preset.js`):测试模式组合内装载,注册测试工作流提示段 + 自动创建 `test-mode/` 目录。
 
 **断言语义边界**(与仓库 HMR 安全测试对齐):
@@ -95,7 +95,7 @@ dsh-test-mode/
 - **自动提交**:test-mode 文件写盘校验通过后,自动 `git add/commit` **仅该文件**(提交信息 `test-mode: <路径> 更新`)——AI 生成的用例/计划/变更清单全程留痕、可回滚;工作区需位于 git 仓库内(否则静默跳过,不影响执行);如需关闭,在 `cordis.patch.yml` 该插件行加 `config: { autoCommit: false }`;
 - 模型可直接读写用例文件,Test 视图与模型共用同一存储。
 
-## API 测试
+## 组件测试 · 接口(原 API 测试)
 
 - **项目**:`test-mode/api/projects/<id>.json`,字段 name、baseUrl、collections(集合数组);
 - **请求**:字段 name、method、url(相对路径拼接 baseUrl,或绝对 URL)、headers、query、body、assertions、extract;
@@ -132,7 +132,7 @@ dsh-test-mode/
   - **复制**、**重跑上次失败**(只跑失败条目)、**智能推荐**(最近失败接口覆盖的用例一键补入);
   - **AI 生成 · 排计划**:描述意图(全量/增量/按模块),智能体读变更清单与项目文件后直接生成计划文件。
 
-## UI 自动化(引擎:Playwright + 系统 Chrome)
+## 组件测试 · UI 脚本(引擎:Playwright + 系统 Chrome)
 
 UI 脚本由 Host 半内置的 Playwright(`playwright-core`)直接驱动**系统 Chrome**,不依赖会话里的浏览器工具、不需要额外浏览器插件:
 
@@ -193,7 +193,7 @@ git push origin v0.1.1
 
 1. 在工作区目录启动 dsh web,新建对话;
 2. 在会话模式选择器选择**测试模式**——选择后该工作区根目录会自动创建 `test-mode/` 目录;
-3. 对话视图切换到 **用例 / API 测试 / 计划 / 报告** 标签:用例管理(创建/编辑步骤/绑定请求/执行)、API 测试(项目→集合→请求树,环境选择,单请求与集合执行)、计划(组合用例+集合一键回归)、报告(执行结果汇总、历史回看、逐断言详情);
+3. 对话视图切换到 **组件测试 / 用例 / 计划 / 报告** 标签(组件测试内含「接口」「UI 脚本」子标签):用例管理(创建/编辑步骤/绑定请求/执行)、API 测试(项目→集合→请求树,环境选择,单请求与集合执行)、计划(组合用例+集合一键回归)、报告(执行结果汇总、历史回看、逐断言详情);
 4. 或在对话里指挥智能体:描述被测插件行为或 API 场景 → 模型按工作流契约写源码/套件/项目 → 通过 API 运行 → 结果落盘 `test-mode/results/` 与 `test-mode/reports/`。
 
 ## 构建与开发

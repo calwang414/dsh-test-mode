@@ -232,12 +232,14 @@ const renderProbe = async (preset) => {
   return rootEl
 }
 await renderProbe('dsh-test-mode')
-check(registered.length === 6, `测试模式会话注册 6 个视图(实际 ${registered.length})`,
+check(registered.length === 5, `测试模式会话注册 5 个视图(实际 ${registered.length})`,
   registered.map((r) => r.def.id).join(','))
+check(!registered.some((r) => r.def.id === 'dsh-test-mode-api' || r.def.id === 'dsh-test-mode-ui'),
+  'API/UI 不再是顶层视图(已合并为组件测试)', registered.map((r) => r.def.id).join(','))
 await renderProbe('standard')
 check(registered.length === 0, '非测试模式会话注销全部视图(标签不可见)', registered.map((r) => r.def.id).join(','))
 await renderProbe('dsh-test-mode')
-check(registered.length === 6, '切回测试模式会话重新注册 6 个视图', registered.map((r) => r.def.id).join(','))
+check(registered.length === 5, '切回测试模式会话重新注册 5 个视图', registered.map((r) => r.def.id).join(','))
 check(!registered.some((r) => r.def.id === 'dsh-test-mode-datafactory'), '数据工厂不再是顶层视图', registered.map((r) => r.def.id).join(','))
 
 let lastDraft = null
@@ -266,6 +268,22 @@ async function renderView(component) {
   return rootEl
 }
 
+/**
+ * 渲染「组件测试」视图,并切到指定子标签(接口 / UI 脚本)。
+ * @param tabLabel - 子标签文字。
+ * @returns 渲染容器。
+ */
+async function renderComponentTab(tabLabel) {
+  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-component')
+  if (!entry) throw new Error('找不到 dsh-test-mode-component 视图')
+  const rootEl = await renderView(entry.component)
+  const button = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === tabLabel)
+  if (!button) throw new Error(`找不到子标签「${tabLabel}」`)
+  button.click()
+  await sleep(30)
+  return rootEl
+}
+
 function assertNoConfirmDialog(rootEl) {
   const text = rootEl.textContent
   return !text.includes('取消') || !text.includes('?')
@@ -275,10 +293,10 @@ function assertNoConfirmDialog(rootEl) {
 // 每个视图:渲染 → 点删除 → 断言弹窗出现 & confirm 未被调用 → 点取消关闭
 const cases = [
   { view: 'dsh-test-mode-cases', triggerText: '删除', dialogMessage: '删除用例「登录用例」?' },
-  { view: 'dsh-test-mode-api', triggerText: '删项目', dialogMessage: '删除项目「订单服务」?' },
+  { view: 'dsh-test-mode-component', subTab: '接口', triggerText: '删项目', dialogMessage: '删除项目「订单服务」?' },
   { view: 'dsh-test-mode-plans', triggerText: '删除', triggerParentText: '回归计划', dialogMessage: '删除计划「回归计划」?' },
   { view: 'dsh-test-mode-environments', triggerText: '删除', dialogMessage: '删除环境「测试环境」?' },
-  { view: 'dsh-test-mode-ui', triggerText: '删除', dialogMessage: '删除脚本「登录流程」?' },
+  { view: 'dsh-test-mode-component', subTab: 'UI 脚本', triggerText: '删除', dialogMessage: '删除脚本「登录流程」?' },
   { view: 'dsh-test-mode-reports', triggerText: '删除', dialogMessage: '删除这份报告?' },
 ]
 
@@ -302,8 +320,16 @@ for (const item of cases) {
   }
   check(rootEl.textContent.length > 0, `${label} 渲染出内容`, '')
 
-  // API 视图:需要先选中项目才会出现「删项目」按钮
-  if (item.view === 'dsh-test-mode-api') {
+  // 组件测试:先切到对应子标签(接口 / UI 脚本)
+  if (item.subTab) {
+    const tabButton = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === item.subTab)
+    if (!tabButton) { check(false, `${label} 子标签「${item.subTab}」存在`, ''); continue }
+    tabButton.click()
+    await sleep(30)
+  }
+
+  // 接口子标签:需要先选中项目才会出现「删项目」按钮
+  if (item.view === 'dsh-test-mode-component' && item.subTab === '接口') {
     const projectRow = [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes('订单服务'))
     if (!projectRow) { check(false, `${label} 项目行存在`, '未找到项目行'); continue }
     projectRow.click()
@@ -349,8 +375,7 @@ for (const item of cases) {
 
 // API 视图的新建项目/集合:自研 PromptDialog 替代 window.prompt
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  const rootEl = await renderView(entry.component)
+  const rootEl = await renderComponentTab('接口')
   let promptCalls = 0
   window.prompt = () => { promptCalls++; return 'X' }
   const addProjectBtn = findByText(findAllButtons(rootEl), '+ 项目')
@@ -360,20 +385,22 @@ for (const item of cases) {
   check(promptCalls === 0, 'API 新建项目未调用 window.prompt', `prompt 被调了 ${promptCalls} 次`)
 }
 
-// 环境选择器:API/用例/UI 三页默认统一为「(默认环境)」
+// 环境选择器:组件测试(接口/UI 脚本)与用例页默认统一为「(默认环境)」
 {
-  for (const [id, label] of [['dsh-test-mode-api', 'API'], ['dsh-test-mode-cases', '用例'], ['dsh-test-mode-ui', 'UI']]) {
-    const entry = registered.find((r) => r.def.id === id)
-    const rootEl = await renderView(entry.component)
+  for (const [tabLabel, label] of [['接口', 'API'], ['UI 脚本', 'UI']]) {
+    const rootEl = await renderComponentTab(tabLabel)
     const select = [...rootEl.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.textContent.includes('默认环境')))
     check(select !== undefined && select.value === '', `${label} 页 环境默认(默认环境)`, select ? `value=${select.value}` : '无环境下拉')
   }
+  const casesEntry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
+  const rootEl = await renderView(casesEntry.component)
+  const select = [...rootEl.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.textContent.includes('默认环境')))
+  check(select !== undefined && select.value === '', '用例 页 环境默认(默认环境)', select ? `value=${select.value}` : '无环境下拉')
 }
 
 // API 树:点击分类只展开该分类的接口清单,可收缩可展开(手风琴)
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  const rootEl = await renderView(entry.component)
+  const rootEl = await renderComponentTab('接口')
   const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
 
   // 初始:项目行收起,无集合/请求
@@ -406,8 +433,7 @@ for (const item of cases) {
 
 // API 树:无 id 集合(旧数据)点击只展开自身,不误展开其他分类
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  const rootEl = await renderView(entry.component)
+  const rootEl = await renderComponentTab('接口')
   const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
   rowByText('订单服务').click()
   await sleep(20)
@@ -422,8 +448,7 @@ for (const item of cases) {
 
 // API 请求编辑器:数据工厂按钮单一来源(后端合并列表),内置生成器不重复
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  const rootEl = await renderView(entry.component)
+  const rootEl = await renderComponentTab('接口')
   const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
   rowByText('订单服务').click()
   await sleep(20)
@@ -541,35 +566,29 @@ for (const item of cases) {
   check(rootEl.textContent.includes('alice') && rootEl.textContent.includes('schema.md'), '数据参考 样例与schema', '')
 }
 
-// 一键 AI 生成按钮:各页「AI 生成」文字按钮存在,API 页缺口计数正确
+// 一键 AI 生成按钮:组件测试两个子标签与用例页均有「AI 生成」入口
 {
-  // API 页:两个按钮(所有接口 mock / 缺口 mock)
-  let entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  let rootEl = await renderView(entry.component)
-  await sleep(30)
+  // 组件测试 · 接口:两个按钮(所有接口 mock / 缺口 mock)
+  let rootEl = await renderComponentTab('接口')
   const aiButtons = [...rootEl.querySelectorAll('button')].filter((b) => b.textContent.includes('AI 生成'))
-  check(aiButtons.length === 2, 'API 页 两个 AI 生成按钮', `实际 ${aiButtons.length}`)
-  check(aiButtons.some((b) => b.title?.includes('缺口')), 'API 页 缺口 mock 按钮', aiButtons.map((b) => b.title).join('|'))
+  check(aiButtons.length === 2, '组件测试·接口 两个 AI 生成按钮', `实际 ${aiButtons.length}`)
+  check(aiButtons.some((b) => b.title?.includes('缺口')), '组件测试·接口 缺口 mock 按钮', aiButtons.map((b) => b.title).join('|'))
   // 用例页:AI 生成按钮
-  entry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  rootEl = await renderView(entry.component)
-  await sleep(30)
+  const casesEntry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
+  rootEl = await renderView(casesEntry.component)
   check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.includes('AI 生成')), '用例页 AI 生成按钮', '')
-  // UI 页:脚本/元素库各有 AI 按钮
-  entry = registered.find((r) => r.def.id === 'dsh-test-mode-ui')
-  rootEl = await renderView(entry.component)
-  await sleep(30)
-  check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.includes('AI 生成')), 'UI 页 AI 生成按钮(脚本tab)', '')
+  // 组件测试 · UI 脚本:脚本/元素库各有 AI 按钮
+  rootEl = await renderComponentTab('UI 脚本')
+  check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.includes('AI 生成')), '组件测试·UI 脚本 AI 生成按钮(脚本tab)', '')
   const elTab = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '元素库')
   elTab.click()
   await sleep(20)
-  check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.includes('AI 生成') && b.title?.includes('元素')), 'UI 页 AI 生成按钮(元素库tab)', '')
+  check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.includes('AI 生成') && b.title?.includes('元素')), '组件测试·UI 脚本 AI 生成按钮(元素库tab)', '')
 }
 
 // mock 提示词内容:默认环境变量 + 真实接口清单;缺口提示词含缺口清单
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  const rootEl = await renderView(entry.component)
+  const rootEl = await renderComponentTab('接口')
   await sleep(30)
   lastDraft = null
   const allBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.includes('全部 mock'))
@@ -654,8 +673,7 @@ for (const item of cases) {
 
 // API 详情页:AI 生成 · 本接口 mock 按钮必须能把提示词填入输入框
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  const rootEl = await renderView(entry.component)
+  const rootEl = await renderComponentTab('接口')
   const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
   rowByText('订单服务').click()
   await sleep(20)
@@ -673,8 +691,7 @@ for (const item of cases) {
 
 // API 详情页:headers/query 对象格式(后端格式)可正常打开,编辑后回写对象格式
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  const rootEl = await renderView(entry.component)
+  const rootEl = await renderComponentTab('接口')
   const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
   rowByText('订单服务').click()
   await sleep(20)
@@ -700,8 +717,7 @@ for (const item of cases) {
 
 // API 详情页:旧数组格式 headers(旧客户端产物)也能打开
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-api')
-  const rootEl = await renderView(entry.component)
+  const rootEl = await renderComponentTab('接口')
   const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
   rowByText('订单服务').click()
   await sleep(20)
