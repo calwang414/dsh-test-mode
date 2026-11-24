@@ -69,9 +69,18 @@ const state = {
   assets: [
     {
       id: 'api:login', kind: 'api', module: '登录', name: '登录接口', tags: ['冒烟'],
-      baseUrl: 'http://x', request: { method: 'POST', url: '/api/login', assertions: [] },
+      baseUrl: 'http://x',
+      request: {
+        name: '登录', method: 'POST', url: '/api/login',
+        headers: { 'content-type': 'application/json' },
+        query: { page: '1' },
+        body: '{"user":"{{USER}}"}',
+        assertions: [{ type: 'status', operator: 'eq', expected: 200 }, { type: 'json', path: '$.token', operator: 'contains', expected: 'tok-' }],
+        extract: [{ name: 'TOKEN', path: '$.token', export: true }],
+      },
       status: 'solid', stats: { runs: 1, passed: 1, failed: 0, totalDurationMs: 5 },
       lastRun: { pass: true, at: '2026-01-01T00:00:00Z' },
+      lastPassed: { at: '2026-01-01T00:00:00Z', request: { method: 'POST', url: '/api/login-passed' } },
     },
     {
       id: 'ui:login-flow', kind: 'ui', type: 'flow', module: '登录', name: '登录流程', tags: [],
@@ -294,13 +303,28 @@ console.log('\n=== 资产库 ===')
 {
   const rootEl = await renderView('dsh-test-mode-assets')
   check(rootEl.textContent.includes('登录接口') && rootEl.textContent.includes('已固化'), '接口资产显示已固化状态', rootEl.textContent.slice(0, 160))
+  check(rootEl.textContent.includes('登录') && rootEl.textContent.includes('未测试'), '树形清单按模块分组并显示状态', rootEl.textContent.slice(0, 160))
+  check(rootEl.textContent.includes('Headers') && rootEl.textContent.includes('Query') && rootEl.textContent.includes('断言') && rootEl.textContent.includes('变量提取'), '右侧富编辑器显示 Headers/Query/断言/变量提取', rootEl.textContent.slice(0, 240))
+  check(rootEl.textContent.includes('执行 1 次(通过 1 / 失败 0)'), '资产显示累计执行统计', '')
+  const curlInput = [...rootEl.querySelectorAll('input')].find((input) => input.value === '/api/login')
+  check(curlInput !== undefined, 'URL 配置回显到编辑器', [...rootEl.querySelectorAll('input')].map((input) => input.value).join('|').slice(0, 120))
+  const inputValues = [...rootEl.querySelectorAll('input')].map((input) => input.value)
+  check(inputValues.includes('tok-') && inputValues.includes('200') && inputValues.includes('$.token'), '断言配置回显到编辑器', inputValues.join('|').slice(0, 160))
   check(findButton(rootEl, '测试待测资产') !== undefined, '显示待测资产批量补测按钮', '')
   const runButton = [...rootEl.querySelectorAll('button')].filter((button) => button.textContent.trim() === '执行')[0]
-  check(runButton !== undefined, '资产卡片有执行按钮', '')
+  check(runButton !== undefined, '资产详情有执行按钮', '')
   if (runButton) {
     runButton.click()
-    await sleep(60)
+    await sleep(80)
     check(rootEl.textContent.includes('通过'), '执行资产后给出结果提示', rootEl.textContent.slice(-160))
+  }
+  const usePassed = findButton(rootEl, '使用上次通过的数据')
+  check(usePassed !== undefined, '已固化接口提供「使用上次通过的数据」', '')
+  if (usePassed) {
+    usePassed.click()
+    await sleep(40)
+    const passedInput = [...rootEl.querySelectorAll('input')].find((input) => input.value === '/api/login-passed')
+    check(passedInput !== undefined, '通过数据可填回编辑器', '')
   }
   const uiTab = findButton(rootEl, 'UI 流程')
   check(uiTab !== undefined, '含 UI 流程子标签', '')
