@@ -79,7 +79,7 @@ const DATASETS = {
     { id: 'plan1', name: '回归计划', entries: [{ kind: 'case', caseId: 'c1' }] },
     { id: 'tpl1', name: '全量回归模板', template: true, entries: [{ kind: 'collection', projectId: 'p1', collectionId: 'col1' }] },
   ] },
-  '/api/ui/scripts': { ok: true, scripts: [{ id: 's1', name: '登录流程', steps: [] }] },
+  '/api/ui/scripts': { ok: true, scripts: [{ id: 's1', name: '登录流程', steps: [{ kind: 'open', url: '/new' }], lastRun: { pass: true, at: '2026-01-05T00:00:00Z' }, stats: { runs: 2, passed: 2, failed: 0, totalDurationMs: 20 }, lastPassed: { at: '2026-01-05T00:00:00Z', steps: [{ kind: 'open', url: '/old' }] } }] },
   '/api/ui/elements': { ok: true, elements: [{ id: 'e1', key: 'login-btn', selector: '#login', page: '/login', description: '' }] },
   '/api/environments': { ok: true, environments: [{ id: 'env1', name: '测试环境', variables: { BASE_URL: 'http://x' } }], defaultEnvironmentId: 'env1' },
   '/api/tags': { ok: true, tags: ['冒烟', '登录'] },
@@ -488,6 +488,18 @@ for (const item of cases) {
   await sleep(30)
   const urlInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === '/orders-passed')
   check(urlInput !== undefined, '点击后把通过时的请求数据填回编辑器', [...rootEl.querySelectorAll('input')].map((i) => i.value).join('|').slice(0, 160))
+}
+
+// UI 脚本状态与「通过版本」:脚本卡片显示已通过,步骤有差异时可恢复到通过时的步骤
+{
+  const rootEl = await renderComponentTab('UI 脚本')
+  await sleep(20)
+  check(rootEl.textContent.includes('已通过'), 'UI 脚本卡片显示执行状态(已通过)', '')
+  const restoreBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '恢复通过版本')
+  check(restoreBtn !== undefined, '步骤与通过版本不一致时提供「恢复通过版本」', '')
+  restoreBtn.click()
+  await sleep(30)
+  check(rootEl.textContent.includes('已恢复为上次通过的脚本版本'), '点击恢复通过版本后给出成功提示', '')
 }
 
 // 数据工厂(已合并进「基础配置」作为子标签):小卡片网格 + 点击弹窗详情(编辑/删除在弹窗内,内置只读)

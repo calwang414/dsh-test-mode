@@ -939,7 +939,16 @@ check(uiRun.body.report.exports?.UI_PAGE_TITLE === '登录页', 'ui eval exportA
 check(uiRun.body.report.kind === 'ui', 'ui report kind', uiRun.body.report.kind)
 const uiShots = await readdir(join(workspacePath, 'test-mode', 'ui', 'screenshots')).catch(() => [])
 check(uiShots.includes('e2e-login.png'), 'ui screenshot written under test-mode root', JSON.stringify(uiShots))
-const uiReportId = uiRun.body.report.id
+// 通过:不保存测试数据(不写报告/历史),只更新脚本状态/计数并通过脚本配置保存通过时的步骤。
+const uiPassReportId = uiRun.body.report.id
+const uiScriptsAfterPass = await api('GET', '/api/ui/scripts', undefined, { workspaceId })
+const loginScriptConfig = uiScriptsAfterPass.body.scripts.find((script) => script.id === uiScriptId)
+check(loginScriptConfig?.lastRun?.pass === true && loginScriptConfig?.stats?.passed >= 1, 'passing ui run updates script status and counters', JSON.stringify(loginScriptConfig?.lastRun))
+check(Array.isArray(loginScriptConfig?.lastPassed?.steps) && loginScriptConfig.lastPassed.steps.length === 9, 'passing ui run stores step snapshot in script config', JSON.stringify(loginScriptConfig?.lastPassed?.steps?.length))
+const reportsAfterUiPass = await api('GET', '/api/reports', undefined, { workspaceId })
+check(!reportsAfterUiPass.body.reports.some((report) => report.id === uiPassReportId), 'passing ui run saves no report', JSON.stringify(reportsAfterUiPass.body.reports.map((report) => report.id)))
+const historyAfterUiPass = await api('GET', '/api/history', undefined, { workspaceId })
+check(!historyAfterUiPass.body.history.some((entry) => entry.kind === 'ui'), 'passing ui run writes no history', JSON.stringify(historyAfterUiPass.body.history.map((entry) => entry.kind)))
 
 // 失败路径:断言不匹配 → 报告失败 + 自动截图
 const uiFailScript = await api('POST', '/api/ui/scripts', { workspaceId, name: '断言失败', steps: [
@@ -951,6 +960,14 @@ check(uiFailRun.status === 200 && uiFailRun.body.report.summary?.failed === 1, '
 const uiFailStep = uiFailRun.body.report.results?.[1]
 check(typeof uiFailStep?.error === 'string' && uiFailStep.error.includes('expected text'), 'ui failure carries assertion detail in response', JSON.stringify(uiFailStep))
 check(uiFailRun.body.report.failedEntries?.[0]?.error?.includes('expected text'), 'ui failure recorded as failed entry (statistics only)', JSON.stringify(uiFailRun.body.report.failedEntries))
+const uiReportId = uiFailRun.body.report.id
+const reportsAfterUiFail = await api('GET', '/api/reports', undefined, { workspaceId })
+check(reportsAfterUiFail.body.reports.some((report) => report.id === uiReportId && report.kind === 'ui'), 'failing ui run saves report', JSON.stringify(reportsAfterUiFail.body.reports.map((report) => report.kind)))
+const historyAfterUiFail = await api('GET', '/api/history', undefined, { workspaceId })
+check(historyAfterUiFail.body.history.some((entry) => entry.kind === 'ui' && entry.pass === false), 'failing ui run writes failure history', JSON.stringify(historyAfterUiFail.body.history.filter((entry) => entry.kind === 'ui')))
+const uiScriptsAfterFail = await api('GET', '/api/ui/scripts', undefined, { workspaceId })
+const failScriptConfig = uiScriptsAfterFail.body.scripts.find((script) => script.id === uiFailScript.body.script.id)
+check(failScriptConfig?.lastRun?.pass === false && failScriptConfig?.stats?.failed >= 1, 'failing ui run updates script status and counters', JSON.stringify(failScriptConfig?.lastRun))
 
 // 页面元素探测(POST /api/ui/probe):AI 生成元素库/脚本用,不再依赖会话浏览器工具
 const uiProbe = await api('POST', '/api/ui/probe', { url: uiPage })
@@ -960,7 +977,7 @@ check(uiProbe.body.elements?.some((item) => item.testId === 'login-submit') && u
 
 // 报告可查(报告 tab 可见 UI 报告)
 const uiReports = await api('GET', '/api/reports', undefined, { workspaceId })
-check(uiReports.body.reports.some((r) => r.id === uiReportId && r.kind === 'ui'), 'ui report in reports list', JSON.stringify(uiReports.body.reports.map((r) => r.kind)))
+check(uiReports.body.reports.some((r) => r.kind === 'ui'), 'ui report in reports list (failures only)', JSON.stringify(uiReports.body.reports.map((r) => r.kind)))
 
 // 引擎直调:真实 Playwright 通过/失败路径
 const { executeUiScript } = await import('../lib/ui-test.js')
