@@ -69,6 +69,7 @@ const state = {
   assets: [
     {
       id: 'api:login', kind: 'api', module: '登录', name: '登录接口', tags: ['冒烟'],
+      source: { projectId: 'p1', collectionId: 'col-auth', collectionName: '登录认证' },
       baseUrl: 'http://x',
       request: {
         name: '登录', method: 'POST', url: '/api/login',
@@ -81,6 +82,14 @@ const state = {
       status: 'solid', stats: { runs: 1, passed: 1, failed: 0, totalDurationMs: 5 },
       lastRun: { pass: true, at: '2026-01-01T00:00:00Z' },
       lastPassed: { at: '2026-01-01T00:00:00Z', request: { method: 'POST', url: '/api/login-passed' } },
+    },
+    {
+      id: 'api:me', kind: 'api', module: '用户', name: '获取用户', tags: [],
+      source: { projectId: 'p1', collectionId: 'col-user', collectionName: '用户接口' },
+      baseUrl: 'http://x',
+      request: { name: 'me', method: 'GET', url: '/api/me', headers: {}, query: {}, body: '', assertions: [{ type: 'status', operator: 'eq', expected: 200 }], extract: [] },
+      status: 'failed', stats: { runs: 1, passed: 0, failed: 1, totalDurationMs: 1 },
+      lastRun: { pass: false, at: '2026-01-02T00:00:00Z' },
     },
     {
       id: 'ui:login-flow', kind: 'ui', type: 'flow', module: '登录', name: '登录流程', tags: [],
@@ -318,6 +327,27 @@ console.log('\n=== 资产库 ===')
     await sleep(80)
     check(rootEl.textContent.includes('通过'), '执行资产后给出结果提示', rootEl.textContent.slice(-160))
   }
+  // 目录折叠:默认只展开当前选中资产所在模块;点击其它模块自动折叠原模块并展开新模块
+  const moduleButton = (name) => [...rootEl.querySelectorAll('[data-testid="asset-module"]')].find((el) => el.getAttribute('data-module') === name)
+  const collectionButton = (name) => [...rootEl.querySelectorAll('[data-testid="asset-collection"]')].find((el) => el.getAttribute('data-collection') === name)
+  check(moduleButton('用户') !== undefined && moduleButton('登录') !== undefined, '树形清单渲染模块目录', '')
+  check(!rootEl.textContent.includes('获取用户'), '未选中的模块默认折叠', rootEl.textContent.slice(0, 160))
+  check(collectionButton('登录认证') !== undefined, '选中资产所在模块自动展开集合', '')
+  moduleButton('用户').click()
+  await sleep(30)
+  check(rootEl.textContent.includes('获取用户') && !rootEl.textContent.includes('登录接口'), '点击模块展开新目录并自动折叠其它目录', rootEl.textContent.slice(0, 200))
+  moduleButton('登录').click()
+  await sleep(30)
+  check(rootEl.textContent.includes('登录接口') && !rootEl.textContent.includes('获取用户'), '再次切换目录手风琴生效', rootEl.textContent.slice(0, 200))
+  const collectionToggle = collectionButton('登录认证')
+  if (collectionToggle) {
+    collectionToggle.click()
+    await sleep(30)
+    check(!rootEl.textContent.includes('登录接口'), '集合目录可折叠', rootEl.textContent.slice(0, 200))
+    collectionToggle.click()
+    await sleep(30)
+    check(rootEl.textContent.includes('登录接口'), '集合目录可展开', rootEl.textContent.slice(0, 200))
+  }
   const usePassed = findButton(rootEl, '使用上次通过的数据')
   check(usePassed !== undefined, '已固化接口提供「使用上次通过的数据」', '')
   if (usePassed) {
@@ -356,7 +386,7 @@ console.log('\n=== 用例 ===')
 console.log('\n=== 版本 ===')
 {
   const rootEl = await renderView('dsh-test-mode-versions')
-  check(rootEl.textContent.includes('待测资产 1') && rootEl.textContent.includes('版本'), '版本页显示待测资产计数', rootEl.textContent.slice(0, 160))
+  check(rootEl.textContent.includes('待测资产 2') && rootEl.textContent.includes('版本'), '版本页显示待测资产计数', rootEl.textContent.slice(0, 160))
   const saveButton = findButton(rootEl, '保存为版本')
   check(saveButton !== undefined, '版本页有「保存为版本」按钮(由服务端校验)', JSON.stringify(saveButton?.disabled))
   const runButton = findButton(rootEl, '发起全量系统测试')
