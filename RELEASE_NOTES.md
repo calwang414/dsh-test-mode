@@ -1,27 +1,17 @@
-# dsh-test-mode v0.3.1
-
-UI 自动化改用**内置 Playwright + 系统 Chrome**执行,不再依赖会话里的浏览器工具
-(`browser_*` / `bsk_*`),也不需要额外的浏览器插件。
+# dsh-test-mode v0.3.2
 
 ## 变更
 
-- **新增浏览器驱动层** `lib/browser-driver.js`:`playwright-core`(无浏览器下载、无安装脚本)
-  直接驱动系统 Chrome;默认 `channel: 'chrome'`,headless 执行;`DSH_TEST_BROWSER_EXECUTABLE`
-  指定可执行文件、`DSH_TEST_BROWSER_CHANNEL=msedge` 换浏览器、`DSH_TEST_BROWSER_HEADFUL=1` 有头调试;
-- **UI 自动化执行引擎重写**:open/click/type/press/assert_*/eval/wait/screenshot 步骤语义不变,
-  底层改为 Playwright 自动等待与原生输入(React/Vue 受控组件兼容),不再手写页面 JS;
-- **失败自动取证**:断言/动作失败自动截图(`test-mode/ui/screenshots/`),并附带 console 错误、
-  页面异常、失败请求诊断;报告的 `driver` 字段记录 Playwright/浏览器版本、channel、headless;
-- **新增页面元素探测** `POST /api/ui/probe { url }`:服务端 Playwright 打开页面,返回候选交互元素
-  (tag/文本/id/name/testid/role/css),AI 生成元素库与脚本不再需要浏览器工具;
-- **移除旧驱动**:不再通过 `tools` 服务调用 `browser_*` 工具,UI 自动化在任何 profile 与
-  会话模式下都能执行(与 `dsh-cdp-browser` / `browser-skill` 解耦);
-- 预设工作流、AI 生成提示词、README 同步更新;新增依赖 `playwright-core@^1.65.1`;
-- 测试:在桌面版真实 harness 上 e2e **235** / 渲染 **146** / 插件 **8** 全绿,其中 UI 用例为
-  Playwright 真实浏览器执行(本地静态页:导航/输入/点击/断言/截图/导出变量/探测/失败取证)。
+- **「数据工厂」合并进「基础配置」,作为子标签存在**:顶部对话视图标签从 7 个减少为 6 个
+  (基础配置 / API 测试 / UI 自动化 / 用例 / 计划 / 报告);
+  - 基础配置页内新增「数据工厂」子标签,与「环境 / 标签 / 数据参考」并列;
+  - 子标签内保留原有能力:内置生成器卡片、自定义生成器新建/编辑/删除、详情弹窗、示例预览;
+  - 工具栏「+ 新建生成器」由基础配置页触发,数量统计与列表联动;
+- 文档与预设工作流同步更新(数据工厂位置、生成器入口文案);
+- 渲染冒烟测试更新:6 个顶层视图 + 基础配置含 4 个子标签 + 数据工厂卡片/弹窗/删除仍有覆盖
+  (148 项);e2e 235、插件 8 全绿。
 
 ## 兼容性
 
-- 需要本机安装 Google Chrome(或用 `DSH_TEST_BROWSER_EXECUTABLE` / `DSH_TEST_BROWSER_CHANNEL` 指定);
-- 客户端契约不变(`@deepseek-ai/dsh-client-*` ≥ 0.1.7-rc.2);
-- 升级后需重启 DeepSeek Harness(桌面版完全退出再打开)。
+- 数据与 API 完全不变(`test-mode/datafactory.json`、`/api/datafactory*` 均保持);
+- 仅 UI 入口位置变化,升级后重启 DeepSeek Harness(桌面版完全退出再打开)即可。

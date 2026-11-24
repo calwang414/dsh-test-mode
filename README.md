@@ -99,13 +99,13 @@ dsh-test-mode/
 
 - **项目**:`test-mode/api/projects/<id>.json`,字段 name、baseUrl、collections(集合数组);
 - **请求**:字段 name、method、url(相对路径拼接 baseUrl,或绝对 URL)、headers、query、body、assertions、extract;
-- **基础配置(独立页面,原「环境」页)**:「环境」子标签管理测试环境——name + variables(KV 编辑器,值支持 `{{VAR}}`/`{{rand.*}}`/`{{factory.*}}` 执行时动态展开)、设为默认、删除;默认环境 id 存 `test-mode/settings.json`,**所有执行(API/用例/UI/计划)未指定环境时自动使用默认环境**;
+- **基础配置(独立页面,原「环境」页,含「环境 / 标签 / 数据参考 / 数据工厂」四个子标签)**:「环境」子标签管理测试环境——name + variables(KV 编辑器,值支持 `{{VAR}}`/`{{rand.*}}`/`{{factory.*}}` 执行时动态展开)、设为默认、删除;默认环境 id 存 `test-mode/settings.json`,**所有执行(API/用例/UI/计划)未指定环境时自动使用默认环境**;
 - **环境**:`test-mode/api/environments/<id>.json`,字段 name、variables;`GET /api/environments` 返回 `defaultEnvironmentId`,`POST /api/environments/:id/default` 设为默认;首个环境自动成为默认;
 - **标签库(基础配置页「标签」子标签)**:`test-mode/tags.json`({ tags: string[] })——用例 tags 只能从标签库选择,新增/删除走 `GET/POST /api/tags`、`DELETE /api/tags/:name`;首次使用自动从现有用例收集标签;用例保存校验拒绝库外标签;用例编辑器改为标签 chips 点选(不再自由输入);
 - **数据库参考数据(基础配置页「数据参考」子标签)**:`test-mode/dbdata/` 固定目录——用户从数据库导出的表结构与测试数据,不直连数据库;`schema.md`(可选)+ `<表名>.csv/.md/.xlsx`(首行表头,xlsx 每 sheet 一张表);`GET /api/dbdata` 解析返回各表字段/行数/样例;智能体生成 mock 测试数据与断言时以此为事实来源,保证贴近真实;
 - **变量替换**:url/headers/query/body 支持 `{{VAR}}` 占位符,优先级——请求级 variables > 环境变量;请求可声明 `extract`(响应 JSON 路径 → 变量)供同一集合的后续请求使用;
-- **数据工厂(内置)**:`{{rand.<type>}}` 语法在执行时动态生成测试数据——phone(11 位手机号)、email、name(中文姓名)、idcard(身份证)、uuid、timestamp/timestamp_s、date、number:min:max、string:length;数据工厂页面默认展示这 10 个内置生成器(「内置」徽章,只读,`{{rand.*}}` 引用),请求编辑器的 Body 区有生成器按钮一键插入;
-- **数据工厂(自定义)**:独立的「数据工厂」视图在默认内置生成器下方可配置自己的生成器——key(引用名)+ 模板(pattern),模板可嵌套内置 `{{rand.*}}` 与其他自定义生成器;执行时用 `{{factory.<key>}}` 引用;`test-mode/datafactory.json` 存储,含 CRUD 与实时预览 API;自定义 key 与内置重名时自定义优先展示;
+- **数据工厂(内置)**:`{{rand.<type>}}` 语法在执行时动态生成测试数据——phone(11 位手机号)、email、name(中文姓名)、idcard(身份证)、uuid、timestamp/timestamp_s、date、number:min:max、string:length;基础配置的「数据工厂」子标签默认展示这 10 个内置生成器(「内置」徽章,只读,`{{rand.*}}` 引用),请求编辑器的 Body 区有生成器按钮一键插入;
+- **数据工厂(自定义)**:「基础配置 → 数据工厂」子标签在默认内置生成器下方可配置自己的生成器——key(引用名)+ 模板(pattern),模板可嵌套内置 `{{rand.*}}` 与其他自定义生成器;执行时用 `{{factory.<key>}}` 引用;`test-mode/datafactory.json` 存储,含 CRUD 与实时预览 API;自定义 key 与内置重名时自定义优先展示;
 - **断言类型**:`status`(状态码)、`header`(响应头)、`body`(响应文本)、`json`(JSON 路径 `$.a.b[0].c`)、`duration`(耗时上限),操作符 eq/ne/gt/ge/lt/le/contains/regex;
 - **执行**:`POST /api/run-request` 单请求、`POST /api/run-collection` 整个集合(变量在请求间流动);集合执行自动生成报告写入 `test-mode/reports/`;
 - **执行历史详情**:历史条目保存完整请求/响应体,`GET /api/history/:id` 可回看;

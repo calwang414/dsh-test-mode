@@ -8,20 +8,46 @@
  * (jsdom / react / react-dom 从仓库 node_modules 解析)
  */
 
-import { JSDOM } from '/Users/calwang/dev/code/deepseek-harness/node_modules/jsdom/lib/api.js'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
+const requireFromHere = createRequire(import.meta.url)
 const clientSource = await readFile(resolve(here, '../lib/client.js'), 'utf8')
 
-// react / react-dom(仓库 .pnpm store,直接指到包入口)
-const reactPath = '/Users/calwang/dev/code/deepseek-harness/node_modules/.pnpm/react@18.3.1/node_modules/react/index.js'
-const reactDomPath = '/Users/calwang/dev/code/deepseek-harness/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/index.js'
-const react = (await import(reactPath)).default ?? (await import(reactPath))
-const ReactDOM = (await import(reactDomPath)).default ?? (await import(reactDomPath))
-const TestUtils = await import('/Users/calwang/dev/code/deepseek-harness/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/test-utils.js')
+/**
+ * 解析渲染测试依赖(jsdom / react / react-dom / test-utils):优先本包 devDependencies,
+ * 回退到环境变量指定的 harness 仓库 node_modules。缺失时给出安装提示。
+ * @param candidates - 候选模块说明符(按优先级)。
+ * @returns 模块命名空间。
+ */
+async function loadDependency(candidates) {
+  const errors = []
+  for (const specifier of candidates) {
+    try {
+      return await import(specifier)
+    } catch (error) {
+      errors.push(`${specifier}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  throw new Error(`无法解析测试依赖 ${candidates[0]};先在插件目录执行 npm install(devDependencies 含 jsdom/react/react-dom)。详情:${errors.join(' | ')}`)
+}
+
+const { JSDOM } = await loadDependency(['jsdom', process.env.DSH_REPO_NODE_MODULES ? resolve(process.env.DSH_REPO_NODE_MODULES, 'jsdom/lib/api.js') : 'jsdom'])
+const reactModule = await loadDependency(['react'])
+const reactDomModule = await loadDependency(['react-dom'])
+const testUtilsUrl = (() => {
+  try {
+    return requireFromHere.resolve('react-dom/test-utils')
+  } catch {
+    return 'react-dom/test-utils'
+  }
+})()
+const react = reactModule.default ?? reactModule
+const ReactDOM = reactDomModule.default ?? reactDomModule
+const TestUtils = await import(testUtilsUrl)
 
 let failed = 0
 let passed = 0
@@ -206,12 +232,13 @@ const renderProbe = async (preset) => {
   return rootEl
 }
 await renderProbe('dsh-test-mode')
-check(registered.length === 7, `测试模式会话注册 7 个视图(实际 ${registered.length})`,
+check(registered.length === 6, `测试模式会话注册 6 个视图(实际 ${registered.length})`,
   registered.map((r) => r.def.id).join(','))
 await renderProbe('standard')
 check(registered.length === 0, '非测试模式会话注销全部视图(标签不可见)', registered.map((r) => r.def.id).join(','))
 await renderProbe('dsh-test-mode')
-check(registered.length === 7, '切回测试模式会话重新注册 7 个视图', registered.map((r) => r.def.id).join(','))
+check(registered.length === 6, '切回测试模式会话重新注册 6 个视图', registered.map((r) => r.def.id).join(','))
+check(!registered.some((r) => r.def.id === 'dsh-test-mode-datafactory'), '数据工厂不再是顶层视图', registered.map((r) => r.def.id).join(','))
 
 let lastDraft = null
 const viewProps = {
@@ -413,40 +440,49 @@ for (const item of cases) {
   check(rootEl.textContent.includes('{{rand.phone}}'), 'API 编辑器 点击内置生成器插入 token', '')
 }
 
-// 数据工厂页面:小卡片网格 + 点击弹窗详情(编辑/删除在弹窗内,内置只读)
+// 数据工厂(已合并进「基础配置」作为子标签):小卡片网格 + 点击弹窗详情(编辑/删除在弹窗内,内置只读)
 {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-datafactory')
+  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-environments')
   const rootEl = await renderView(entry.component)
   await sleep(30)
+  // 基础配置工具栏含「环境 / 标签 / 数据参考 / 数据工厂」四个子标签
+  const tabNames = [...rootEl.querySelectorAll('button')].map((b) => b.textContent.trim())
+  check(tabNames.includes('数据工厂') && tabNames.includes('环境') && tabNames.includes('标签') && tabNames.includes('数据参考'),
+    '基础配置页 含数据工厂子标签', tabNames.slice(0, 8).join(','))
+  const factoryTab = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '数据工厂')
+  factoryTab.click()
+  await sleep(40)
   const cards = [...rootEl.querySelectorAll('[role="button"]')].filter((el) => el.textContent.includes('{{') )
-  check(cards.length === 2, '数据工厂页 生成器小卡片渲染', `卡片数 ${cards.length}`)
-  check(rootEl.textContent.includes('用户名 ✦'), '数据工厂页 自定义卡片带✦标记', '')
-  check(!rootEl.textContent.includes('删除生成器'), '数据工厂页 列表本身无删除按钮(在弹窗内)', '')
+  check(cards.length === 2, '基础配置·数据工厂 生成器小卡片渲染', `卡片数 ${cards.length}`)
+  check(rootEl.textContent.includes('用户名 ✦'), '基础配置·数据工厂 自定义卡片带✦标记', '')
+  check(!rootEl.textContent.includes('删除生成器'), '基础配置·数据工厂 列表本身无删除按钮(在弹窗内)', '')
   // 点击自定义卡片 → 详情弹窗(编辑/删除/示例)
   const customCard = cards.find((el) => el.textContent.includes('用户名'))
   customCard.click()
   await sleep(40)
-  check(rootEl.textContent.includes('自定义') && rootEl.textContent.includes('{{factory.username}}'), '数据工厂页 弹窗显示类型与token', '')
-  check(rootEl.textContent.includes('13800001234'), '数据工厂页 弹窗含示例预览', '')
-  check(!rootEl.textContent.includes('插入到 Body'), '数据工厂页 弹窗无插入按钮', '')
+  check(rootEl.textContent.includes('自定义') && rootEl.textContent.includes('{{factory.username}}'), '基础配置·数据工厂 弹窗显示类型与token', '')
+  check(rootEl.textContent.includes('13800001234'), '基础配置·数据工厂 弹窗含示例预览', '')
+  check(!rootEl.textContent.includes('插入到 Body'), '基础配置·数据工厂 弹窗无插入按钮', '')
   // 弹窗内点删除 → 确认弹窗 → 确认 → DELETE
   deleteCalls = 0
   const delInDialog = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '删除')
   delInDialog.click()
   await sleep(20)
-  check(rootEl.textContent.includes('删除生成器「用户名」?'), '数据工厂页 弹窗删除先出确认框', '')
+  check(rootEl.textContent.includes('删除生成器「用户名」?'), '基础配置·数据工厂 弹窗删除先出确认框', '')
   const okBtn = [...rootEl.querySelectorAll('button')].filter((b) => b.textContent.trim() === '删除').pop()
   okBtn.click()
   await sleep(20)
-  check(deleteCalls === 1, '数据工厂页 确认后发起 DELETE', `DELETE 次数 ${deleteCalls}`)
+  check(deleteCalls === 1, '基础配置·数据工厂 确认后发起 DELETE', `DELETE 次数 ${deleteCalls}`)
   // 内置卡片 → 弹窗无编辑/删除按钮
   await renderView(entry.component)
   await sleep(30)
+  ;[...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '数据工厂').click()
+  await sleep(40)
   const phoneCard = [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes('手机号') && el.textContent.includes('{{rand.phone}}'))
   phoneCard.click()
   await sleep(40)
   const dialogBtns = [...rootEl.querySelectorAll('button')].map((b) => b.textContent.trim())
-  check(rootEl.textContent.includes('内置') && !dialogBtns.includes('编辑') && !dialogBtns.includes('删除'), '数据工厂页 内置卡片弹窗只读', `按钮: ${dialogBtns.join(',')}`)
+  check(rootEl.textContent.includes('内置') && !dialogBtns.includes('编辑') && !dialogBtns.includes('删除'), '基础配置·数据工厂 内置卡片弹窗只读', `按钮: ${dialogBtns.join(',')}`)
 }
 
 
