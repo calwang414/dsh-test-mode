@@ -510,10 +510,13 @@ check(boundCase.status === 200 && boundCase.body.ok, 'bind requestRef to case st
 
 const caseRun = await api('POST', `/api/cases/${caseId}/run`, { workspaceId, environmentId: envId })
 check(caseRun.status === 200 && caseRun.body.ok, 'run-case ok', JSON.stringify(caseRun.body))
-const caseReport = caseRun.body.report
+const caseReport = caseRun.body.result
+check(caseRun.body.mode === 'legacy', 'legacy case runs in legacy mode', JSON.stringify(caseRun.body.mode))
 check(caseReport.summary?.total === 2 && caseReport.summary?.passed === 2, 'case run executed 2 bound steps', JSON.stringify(caseReport.summary))
 check(caseReport.summary?.skipped === 1, 'case run skipped unbound step', JSON.stringify(caseReport.summary))
 check(caseReport.results?.[0]?.url?.includes('/api/login'), 'first step hit login API', JSON.stringify(caseReport.results?.[0]))
+const caseRunReports = await api('GET', '/api/reports', undefined, { workspaceId })
+check(!caseRunReports.body.reports.some((report) => report.kind === 'case'), 'case run saves no report (execution only)', JSON.stringify(caseRunReports.body.reports.map((report) => report.kind)))
 
 // 步骤级数据覆盖:step.data.body 覆盖请求配置;未提供 data 回退请求配置
 const dataCase = await api('POST', '/api/cases', {
@@ -1033,10 +1036,10 @@ const mixCaseId = mixCase.body.case.id
 // 执行:UI 步骤真实通过(Playwright),API 步骤真实请求,手工步骤跳过
 const mixRun = await api('POST', `/api/cases/${mixCaseId}/run`, { workspaceId, environmentId: envId })
 check(mixRun.status === 200 && mixRun.body.ok, 'mixed case run ok', JSON.stringify(mixRun.body))
-check(mixRun.body.report.results?.[0]?.kind === 'ui', 'first step is ui kind', JSON.stringify(mixRun.body.report.results?.[0]))
-check(mixRun.body.report.results?.[0]?.pass === true, 'ui step passes with playwright', JSON.stringify(mixRun.body.report.results?.[0]?.error))
-check(mixRun.body.report.results?.[1]?.kind === 'request' && mixRun.body.report.results?.[1]?.status === 200, 'api step passes after ui', JSON.stringify(mixRun.body.report.results?.[1]))
-check(mixRun.body.report.summary?.skipped === 1, 'manual step skipped', JSON.stringify(mixRun.body.report.summary))
+check(mixRun.body.result.results?.[0]?.kind === 'ui', 'first step is ui kind', JSON.stringify(mixRun.body.result.results?.[0]))
+check(mixRun.body.result.results?.[0]?.pass === true, 'ui step passes with playwright', JSON.stringify(mixRun.body.result.results?.[0]?.error))
+check(mixRun.body.result.results?.[1]?.kind === 'request' && mixRun.body.result.results?.[1]?.status === 200, 'api step passes after ui', JSON.stringify(mixRun.body.result.results?.[1]))
+check(mixRun.body.result.summary?.skipped === 1, 'manual step skipped', JSON.stringify(mixRun.body.result.summary))
 
 // 引擎混合路径:executeCase + 真实 executeUiScript 验证顺序与结果
 const { executeCase } = await import('../lib/api-test.js')
@@ -1365,6 +1368,74 @@ console.log('\n=== 预设 prompt 段占位符 ===')
   const patchTokens = [...patchSource.matchAll(/\{\{[^}]*\}\}/g)].map((match) => match[0])
   check(patchTokens.every((token) => token === '{{model}}'), '补丁内 prompt 占位符仅使用已注册的 {{model}}', patchTokens.join(','))
 }
+
+// ── 5.13 测试资产与版本(资产化模型) ──────────────────────────────────
+console.log('\n=== 测试资产与版本 ===')
+// 迁移:旧项目/用例 → 资产(幂等)
+const migrated = await api('POST', '/api/migrate/assets', { workspaceId })
+check(migrated.status === 200 && migrated.body.manifest.counts.apiAssets >= 1, 'migrate legacy data to assets', JSON.stringify(migrated.body.manifest?.counts))
+const migratedAgain = await api('POST', '/api/migrate/assets', { workspaceId })
+check(migratedAgain.status === 200 && migratedAgain.body.manifest.warnings.length >= 0, 'migrate is idempotent', JSON.stringify(migratedAgain.body.manifest?.counts))
+const assetList = await api('GET', '/api/assets', undefined, { workspaceId })
+check(assetList.status === 200 && assetList.body.assets.length >= 1, 'list assets', JSON.stringify(assetList.body.summary))
+check(typeof assetList.body.summary?.untested === 'number', 'asset summary exposed', JSON.stringify(assetList.body.summary))
+const pendingList = await api('GET', '/api/assets/pending', undefined, { workspaceId })
+check(pendingList.status === 200 && pendingList.body.counts.pending >= 1, 'pending assets query', JSON.stringify(pendingList.body.counts))
+
+// 创建资产:首次通过即固化
+const assetCreate = await api('POST', '/api/assets', { workspaceId, kind: 'api', module: '资产测试', name: '健康检查', baseUrl, request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] } })
+check(assetCreate.status === 200 && assetCreate.body.asset.status === 'untested', 'create api asset', JSON.stringify(assetCreate.body.asset?.id))
+const assetId = assetCreate.body.asset.id
+const assetRun = await api('POST', '/api/assets/run', { workspaceId, assetId })
+check(assetRun.status === 200 && assetRun.body.result.pass === true, 'run api asset passes', JSON.stringify(assetRun.body.result))
+check(assetRun.body.asset.status === 'solid' && assetRun.body.asset.stats?.passed === 1, 'asset solid after first pass', JSON.stringify({ status: assetRun.body.asset.status, stats: assetRun.body.asset.stats }))
+
+// 失败 → failed
+const failingAsset = await api('POST', '/api/assets', { workspaceId, kind: 'api', module: '资产测试', name: '错误接口', baseUrl, request: { method: 'GET', url: '/api/error', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] } })
+const failingRun = await api('POST', '/api/assets/run', { workspaceId, assetId: failingAsset.body.asset.id })
+check(failingRun.body.result.pass === false && failingRun.body.asset.status === 'failed', 'asset failed status on failure', JSON.stringify(failingRun.body.asset.status))
+
+// 版本保存:存在未通过资产时拒绝并列出清单
+const versionBlocked = await api('POST', '/api/versions', { workspaceId })
+check(versionBlocked.status === 409 && Array.isArray(versionBlocked.body.failing) && versionBlocked.body.failing.length > 0, 'version save blocked when assets not solid', JSON.stringify(versionBlocked.body.message))
+
+// 批量执行:只处理待测资产,并按 batchSize 分批
+await api('PUT', `/api/assets/${failingAsset.body.asset.id}`, { workspaceId, request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] } })
+const batchRun = await api('POST', '/api/assets/run-batch', { workspaceId, module: '资产测试', batchSize: 1 })
+check(batchRun.status === 200 && batchRun.body.batch.ran <= 1, 'batch run respects batchSize', JSON.stringify(batchRun.body.batch))
+await api('POST', '/api/assets/run-batch', { workspaceId, module: '资产测试', batchSize: 5 })
+const moduleAssets = await api('GET', '/api/assets', undefined, { workspaceId, module: '资产测试' })
+check(moduleAssets.body.assets.every((asset) => asset.status === 'solid'), 'batch run solidifies pending assets', JSON.stringify(moduleAssets.body.assets.map((asset) => [asset.name, asset.status])))
+
+// 清理遗留(未迁移测试的)资产后保存版本:必须全部通过
+const allAssets = await api('GET', '/api/assets', undefined, { workspaceId })
+for (const asset of allAssets.body.assets) {
+  if (asset.module !== '资产测试') await api('DELETE', `/api/assets/${asset.id}`, undefined, { workspaceId })
+}
+const versionSaved = await api('POST', '/api/versions', { workspaceId, name: 'e2e 全量版本' })
+check(versionSaved.status === 200 && versionSaved.body.version?.coverage?.assetsTotal === moduleAssets.body.assets.length, 'save version when all assets solid', JSON.stringify(versionSaved.body.version?.coverage))
+const versionId = versionSaved.body.version.id
+const versionsList = await api('GET', '/api/versions', undefined, { workspaceId })
+check(versionsList.status === 200 && versionsList.body.versions.some((version) => version.id === versionId), 'list versions', JSON.stringify(versionsList.body.versions.map((version) => version.id)))
+const versionDetail = await api('GET', `/api/versions/${versionId}`, undefined, { workspaceId })
+check(versionDetail.status === 200 && versionDetail.body.version.id === versionId, 'version detail', '')
+const versionCompare = await api('GET', `/api/versions/${versionId}/compare`, undefined, { workspaceId })
+check(versionCompare.status === 200 && versionCompare.body.hasPrevious === false, 'version compare without previous', JSON.stringify(versionCompare.body))
+
+// 配置变更 → 过期 → 保存版本被拒;重跑后恢复
+await api('PUT', `/api/assets/${assetId}`, { workspaceId, name: '健康检查(改)' })
+const staleAssets = await api('GET', '/api/assets', undefined, { workspaceId })
+check(staleAssets.body.assets.some((asset) => asset.id === assetId && asset.stale === true), 'asset updated after pass becomes stale', JSON.stringify(staleAssets.body.assets.find((asset) => asset.id === assetId)?.stale))
+const versionBlockedStale = await api('POST', '/api/versions', { workspaceId })
+check(versionBlockedStale.status === 409, 'version save blocked by stale assets', JSON.stringify(versionBlockedStale.body.message))
+const rerunStale = await api('POST', '/api/assets/run', { workspaceId, assetId })
+check(rerunStale.body.asset.status === 'solid', 'rerun clears stale state', JSON.stringify({ status: rerunStale.body.asset.status }))
+const versionSaved2 = await api('POST', '/api/versions', { workspaceId, name: 'e2e 全量版本 2' })
+check(versionSaved2.status === 200, 'save version after rerun', JSON.stringify(versionSaved2.body.message))
+const versionCompare2 = await api('GET', `/api/versions/${versionSaved2.body.version.id}/compare`, undefined, { workspaceId })
+check(versionCompare2.status === 200 && versionCompare2.body.hasPrevious === true, 'version compare with previous', JSON.stringify(versionCompare2.body.previous?.id))
+const deletedVersion = await api('DELETE', `/api/versions/${versionSaved2.body.version.id}`, undefined, { workspaceId })
+check(deletedVersion.status === 200, 'delete version', '')
 
 // ── 6. 落盘检查 ──────────────────────────────────────────────────────────
 const diskFiles = await readdir(join(workspacePath, 'test-mode'), { recursive: true })

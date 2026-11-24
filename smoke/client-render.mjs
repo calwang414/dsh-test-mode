@@ -1,8 +1,10 @@
 /**
- * 客户端渲染冒烟测试:jsdom 渲染 7 个视图标签,验证:
- * 1. 每个视图都能挂载渲染(不抛错、不空白);
- * 2. 点击「删除」弹出自研 ConfirmDialog(绝不调用 window.confirm);
- * 3. 确认弹窗可取消、可确认(确认走 fetch DELETE)。
+ * 客户端渲染冒烟测试(资产化模型):jsdom 渲染 4 个视图标签,验证:
+ * 1. 视图门控与注册(基础配置 / 资产库 / 用例 / 版本);
+ * 2. 资产库:状态徽章、执行、UI 子标签、批量补测按钮;
+ * 3. 用例:资产组合展示、执行结果;
+ * 4. 版本:待测计数、全量测试后保存版本、删除确认(自研 ConfirmDialog);
+ * 5. 基础配置:环境卡片与数据工厂子标签。
  *
  * 运行:node smoke/client-render.mjs
  * (jsdom / react / react-dom 从仓库 node_modules 解析)
@@ -47,95 +49,116 @@ const testUtilsUrl = (() => {
 })()
 const react = reactModule.default ?? reactModule
 const ReactDOM = reactDomModule.default ?? reactDomModule
-const TestUtils = await import(testUtilsUrl)
+void (await import(testUtilsUrl))
 
 let failed = 0
 let passed = 0
+/**
+ * 记录断言结果。
+ * @param condition - 断言条件。
+ * @param label - 断言描述。
+ * @param detail - 失败详情。
+ */
 function check(condition, label, detail) {
   if (condition) { passed++; console.log(`  PASS ${label}`) }
   else { failed++; console.log(`  FAIL ${label} ${detail ?? ''}`) }
 }
 
-// ── 每个视图的 mock 数据(按 URL 后缀返回) ───────────────────────────────
-const DATASETS = {
-  '/api/cases': { ok: true, cases: [{ id: 'c1', name: '登录用例', description: '', priority: 'high', status: 'active', tags: [], steps: [{ action: 'GET /api/me', expected: 'ok' }] }] },
-  '/api/projects': {
-    ok: true,
-    projects: [{
-      id: 'p1', name: '订单服务', baseUrl: 'http://127.0.0.1:9999',
-      collections: [
-        { id: 'col1', name: '订单接口', requests: [{
-          id: 'r1', name: '创建订单', method: 'POST', url: '/orders', headers: { 'content-type': 'application/json', 'x-trace': 'abc' }, query: { page: '1' }, body: '', assertions: [], extract: [],
-          lastRun: { pass: true, status: 200, at: '2026-01-04T00:00:00Z' },
-          stats: { runs: 3, passed: 3, failed: 0, totalDurationMs: 30 },
-          lastPassed: { at: '2026-01-04T00:00:00Z', status: 200, request: { name: '创建订单', method: 'POST', url: '/orders-passed', headers: { 'content-type': 'application/json' }, query: { page: '1' }, body: '' } },
-        }] },
-        // 旧数据:集合/请求无 id,前端应用 name 兜底;headers 数组格式(旧客户端产物)也能打开
-        { name: '无ID集合', requests: [{ name: '无ID请求', method: 'GET', url: '/x', headers: [{ key: 'x-old', value: '1' }], query: [], body: '', assertions: [], extract: [] }] },
-      ],
-    }],
-  },
-  '/api/plans': { ok: true, plans: [
-    { id: 'plan1', name: '回归计划', entries: [{ kind: 'case', caseId: 'c1' }] },
-    { id: 'tpl1', name: '全量回归模板', template: true, entries: [{ kind: 'collection', projectId: 'p1', collectionId: 'col1' }] },
-  ] },
-  '/api/ui/scripts': { ok: true, scripts: [{ id: 's1', name: '登录流程', steps: [{ kind: 'open', url: '/new' }], lastRun: { pass: true, at: '2026-01-05T00:00:00Z' }, stats: { runs: 2, passed: 2, failed: 0, totalDurationMs: 20 }, lastPassed: { at: '2026-01-05T00:00:00Z', steps: [{ kind: 'open', url: '/old' }] } }] },
-  '/api/ui/elements': { ok: true, elements: [{ id: 'e1', key: 'login-btn', selector: '#login', page: '/login', description: '' }] },
-  '/api/environments': { ok: true, environments: [{ id: 'env1', name: '测试环境', variables: { BASE_URL: 'http://x' } }], defaultEnvironmentId: 'env1' },
-  '/api/tags': { ok: true, tags: ['冒烟', '登录'] },
-  '/api/dbdata': { ok: true, tables: [{ name: 'users', format: 'csv', columns: ['id', 'name'], rowCount: 2, sample: [['1', 'alice'], ['2', 'bob']] }], schemaText: '# users 表\n' },
-  '/api/datafactory': { ok: true, generators: [{ id: 'g1', key: 'username', name: '用户名', pattern: 'user_{{rand.number:100:999}}', builtin: false }, { id: 'g2', key: 'phone', name: '手机号', pattern: '{{rand.phone}}', builtin: true }] },
-  '/api/reports': { ok: true, reports: [
-    { id: 'rep1', name: '回归报告', kind: 'collection', summary: { total: 2, passed: 2, failed: 0 }, durationMs: 12, createdAt: '2026-01-01T00:00:00Z', failedEntries: [] },
-    { id: 'rep2', name: '回归报告', kind: 'collection', summary: { total: 2, passed: 1, failed: 1 }, durationMs: 20, createdAt: '2026-01-02T00:00:00Z', failedEntries: [
-      { kind: 'request', label: '获取用户', method: 'GET', url: 'http://x/api/me', status: 500, error: 'boom2' },
-    ] },
-  ] },
-  '/api/changelogs': { ok: true, changelogs: [
-    { id: 'chg1', name: 'v1.2 变更', source: 'openapi-diff', createdAt: '2026-01-03T00:00:00Z', changedRequests: [{ method: 'GET', url: '/api/me', change: 'modified' }] },
-  ] },
-  '/api/stats/interfaces': { ok: true, interfaces: [{ method: 'GET', url: 'http://x/api/me', total: 3, passed: 2, failed: 1, successRate: 67, avgDurationMs: 15, lastPass: false, lastStatus: 500, lastAt: '2026-01-02T00:00:00Z' }] },
-  '/api/stats/failures': { ok: true, topFailedRequests: [{ method: 'GET', url: 'http://x/api/me', failCount: 1 }], topFailedAssertions: [{ label: 'status eq 200', failCount: 2 }] },
+// ── 可变 mock 状态 ─────────────────────────────────────────────────────
+const state = {
+  assets: [
+    {
+      id: 'api:login', kind: 'api', module: '登录', name: '登录接口', tags: ['冒烟'],
+      baseUrl: 'http://x', request: { method: 'POST', url: '/api/login', assertions: [] },
+      status: 'solid', stats: { runs: 1, passed: 1, failed: 0, totalDurationMs: 5 },
+      lastRun: { pass: true, at: '2026-01-01T00:00:00Z' },
+    },
+    {
+      id: 'ui:login-flow', kind: 'ui', type: 'flow', module: '登录', name: '登录流程', tags: [],
+      steps: [{ kind: 'open', url: 'http://x/login' }],
+      status: 'untested',
+    },
+  ],
+  cases: [{ id: 'case-login', name: '登录用例', module: '登录', tags: ['冒烟'], assets: [{ assetId: 'api:login' }] }],
+  versions: [],
+  pending: { total: 2, pending: 1, untested: 1, failed: 0, stale: 0, solid: 1 },
+  calls: [],
+}
+/** 重算待测统计。 */
+function recomputePending() {
+  const pendingAssets = state.assets.filter((asset) => asset.status !== 'solid')
+  state.pending = {
+    total: state.assets.length,
+    pending: pendingAssets.length,
+    untested: pendingAssets.filter((asset) => asset.status === 'untested').length,
+    failed: pendingAssets.filter((asset) => asset.status === 'failed').length,
+    stale: 0,
+    solid: state.assets.filter((asset) => asset.status === 'solid').length,
+  }
+}
+/** 资产汇总。 */
+function assetSummary() {
+  return { total: state.assets.length, solid: state.pending.solid, failed: state.pending.failed, untested: state.pending.untested, stale: 0 }
 }
 
-let confirmCalls = 0
-let deleteCalls = 0
-let planPostCalls = 0
-let lastRunRequest = null
-
+/** 根据 URL/方法返回 mock 响应。 */
 function makeFetchStub() {
   return async (url, init) => {
     const u = String(url)
     const method = init?.method ?? 'GET'
-    if (method === 'DELETE') deleteCalls++
-    if (u.includes('/api/run-request') && method === 'POST') {
-      lastRunRequest = JSON.parse(init.body)
-      return { ok: true, status: 200, json: async () => ({ ok: true, result: { ok: true, status: 200, durationMs: 1, assertions: [] } }), text: async () => '{}' }
+    const json = (payload, status = 200) => ({ ok: status < 400, status, json: async () => payload, text: async () => JSON.stringify(payload) })
+    state.calls.push(`${method} ${u}`)
+    if (u.includes('/api/assets/pending')) return json({ ok: true, assets: state.assets.filter((asset) => asset.status !== 'solid'), counts: state.pending })
+    if (u.includes('/api/assets/run-batch')) {
+      const body = JSON.parse(init.body)
+      const results = (body.assetIds ?? []).map((assetId) => {
+        const asset = state.assets.find((item) => item.id === assetId)
+        if (asset) asset.status = 'solid'
+        return { assetId, name: asset?.name, pass: true, status: 'solid' }
+      })
+      recomputePending()
+      return json({ ok: true, batch: { requested: results.length, ran: results.length }, results, remaining: state.pending })
     }
-    if (u.includes('/api/plans') && method === 'POST' && !u.includes('incremental-preview')) planPostCalls++
-    if (u.includes('/api/plans/incremental-preview')) {
-      return { ok: true, status: 200, json: async () => ({ ok: true, fromChangelog: 1, changedRequests: 2, changedCases: 1, coveringCases: 1, changedScripts: 1, affectedScripts: 1, tableCases: 1, moduleCases: 1, totalEntries: 2, gaps: [{ method: 'POST', url: '/api/x', path: '/api/x' }] }), text: async () => '{}' }
+    if (u.includes('/api/assets/run') && method === 'POST') {
+      const body = JSON.parse(init.body)
+      const asset = state.assets.find((item) => item.id === body.assetId)
+      if (asset) asset.status = 'solid'
+      recomputePending()
+      return json({ ok: true, result: { assetId: body.assetId, name: asset?.name, pass: true }, asset })
     }
-    if (u.includes('/api/datafactory/preview')) {
-      return { ok: true, status: 200, json: async () => ({ ok: true, samples: ['13800001234', '13911112222', '13733334444'] }), text: async () => '{}' }
+    if (u.includes('/api/assets?')) return json({ ok: true, assets: state.assets, summary: assetSummary() })
+    if (u.includes('/api/assets')) return json({ ok: true, assets: state.assets, summary: assetSummary() })
+    if (u.includes('/api/cases/') && u.endsWith('/run')) {
+      return json({ ok: true, result: { name: '登录用例', durationMs: 3, summary: { total: 1, passed: 1, failed: 0, skipped: 0 }, results: [{ name: '登录接口', pass: true }], exports: {} } })
     }
-    if (u.includes('/api/tags') && method === 'POST') {
-      return { ok: true, status: 200, json: async () => ({ ok: true, tags: ['冒烟', '登录', '回归'] }), text: async () => '{}' }
+    if (u.includes('/api/cases')) return json({ ok: true, cases: state.cases })
+    if (u.includes('/api/versions/') && method === 'DELETE') {
+      const id = u.split('/api/versions/')[1].split('?')[0]
+      const index = state.versions.findIndex((version) => version.id === id)
+      if (index >= 0) state.versions.splice(index, 1)
+      return json({ ok: true })
     }
-    if (u.includes('/compare')) {
-      return { ok: true, status: 200, json: async () => ({ ok: true, hasPrevious: true, previous: { id: 'rep1', summary: { total: 2, passed: 2, failed: 0 }, durationMs: 12 }, diff: { failedDelta: 1, durationDeltaMs: 8, newFailures: [{ method: 'GET', url: 'http://x/api/me', error: 'boom' }], fixedCount: 0 } }), text: async () => '{}' }
-    }
-    if (u.includes('/api/reports/')) {
-      const id = u.split('/api/reports/')[1].split('?')[0]
-      const report = DATASETS['/api/reports'].reports.find((r) => r.id === id)
-      return { ok: true, status: 200, json: async () => ({ ok: true, report }), text: async () => '{}' }
-    }
-    for (const [suffix, payload] of Object.entries(DATASETS)) {
-      if (u.includes(suffix)) {
-        return { ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) }
+    if (u.includes('/compare')) return json({ ok: true, hasPrevious: false })
+    if (u.includes('/api/versions') && method === 'POST') {
+      if (state.pending.pending > 0) {
+        return json({ ok: false, message: `还有 ${state.pending.pending} 个资产未通过或已过期,不能保存版本`, failing: state.assets.filter((asset) => asset.status !== 'solid').map((asset) => ({ id: asset.id, name: asset.name, status: asset.status })) }, 409)
       }
+      const version = {
+        id: `version-${state.versions.length + 1}`, name: '全量系统测试 1', createdAt: new Date().toISOString(),
+        coverage: { assetsTotal: state.assets.length, assetsExecuted: state.assets.length, solid: state.assets.length, failed: 0, untested: 0 },
+        summary: { total: state.assets.length, passed: state.assets.length, failed: 0 },
+        byModule: [{ module: '登录', total: state.assets.length, passed: state.assets.length, failed: 0 }], failedAssets: [],
+      }
+      state.versions.unshift(version)
+      return json({ ok: true, version })
     }
-    return { ok: true, status: 200, json: async () => ({ ok: true }), text: async () => '{}' }
+    if (u.includes('/api/versions')) return json({ ok: true, versions: state.versions })
+    if (u.includes('/api/environments')) return json({ ok: true, environments: [{ id: 'env1', name: '测试环境', variables: { BASE_URL: 'http://x' } }], defaultEnvironmentId: 'env1' })
+    if (u.includes('/api/tags')) return json({ ok: true, tags: ['冒烟', '登录'] })
+    if (u.includes('/api/dbdata')) return json({ ok: true, tables: [], schemaText: '' })
+    if (u.includes('/api/datafactory')) return json({ ok: true, generators: [{ id: 'g1', key: 'phone', name: '手机号', pattern: '{{rand.phone}}', builtin: true }] })
+    if (u.includes('/api/session')) return json({ ok: true, variables: {} })
+    return json({ ok: true })
   }
 }
 
@@ -152,8 +175,8 @@ globalThis.HTMLElement = window.HTMLElement
 globalThis.Node = window.Node
 Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true })
 window.fetch = makeFetchStub()
+let confirmCalls = 0
 window.confirm = () => { confirmCalls++; return true }
-// react-dom 在 jsdom 中走 input 事件 polyfill 分支,需要 attachEvent/detachEvent stub 避免报错
 window.HTMLElement.prototype.attachEvent = function () { return null }
 window.HTMLElement.prototype.detachEvent = function () { return null }
 
@@ -169,29 +192,20 @@ const factoryRequire = (name) => {
 const clientModule = clientFactory(factoryRequire)
 check(typeof clientModule.apply === 'function' && clientModule.inject?.includes('slots'), 'client 模块结构正确', '')
 
-// ── 渲染 + 交互辅助 ──────────────────────────────────────────────────────
-
-const views = [
-  { id: 'cases', label: '用例', name: 'CasesView', component: clientModule.views?.find?.() ?? null },
-]
-
-// 从模块导出读视图组件(工厂内部没有导出视图,这里直接读取 apply 里的闭包不可行;
-// 改为通过 slots.register 捕获注册的组件)。
-const registered = []          // conversation.view 条目
-const gatedRegistrations = []   // 会话头部探针等其它槽条目
-let injectCalls = []
+// ── slots / 会话探针模拟 ─────────────────────────────────────────────────
+const registered = []
+const gatedRegistrations = []
+const injectCalls = []
 const slotsMock = {
   register: (def, component) => {
     const entry = { def, component }
     const bucket = def?.name === 'conversation.view' ? registered : gatedRegistrations
     bucket.push(entry)
-    // 与真实槽位系统一致:注册返回的 disposer 移除该条目
     return () => {
       const index = bucket.indexOf(entry)
       if (index >= 0) bucket.splice(index, 1)
     }
   },
-  // 当前客户端契约:注册经 slots.inject(ownerKey, callback) 绑定到槽位声明
   inject: (key, callback) => {
     injectCalls.push(key)
     const disposers = callback()
@@ -199,12 +213,8 @@ const slotsMock = {
     return () => { for (const dispose of list) dispose?.() }
   },
 }
-// 会话投影(agentPreset):新版客户端里该值来自宿主会话投影,不是会话列表字段
 let projectionPreset = 'dsh-test-mode'
-const projectionFace = {
-  getSnapshot: () => projectionPreset,
-  subscribe: () => () => {},
-}
+const projectionFace = { getSnapshot: () => projectionPreset, subscribe: () => () => {} }
 const sessionsMock = {
   list: {
     getSnapshot: () => ({ current: 's1', byId: { s1: { sessionId: 's1' } } }),
@@ -220,717 +230,155 @@ const ctxMock = {
   effect: (fn) => { fn(); return () => {} },
 }
 clientModule.apply(ctxMock)
-check(injectCalls.includes('conversation.view') && injectCalls.includes('conversation.session.header.utilities'),
-  '注入视图槽与会话头部探针槽', JSON.stringify(injectCalls))
-check(registered.length === 0, '探针判定前不注册视图(门控由会话头部驱动)', registered.map((r) => r.def.id).join(','))
-// 渲染会话头部探针:它按当前会话的 agentPreset 投影注册/注销视图
-const probeEntry = gatedRegistrations.find((r) => r.def.id === 'dsh-test-mode-view-gate')
-check(probeEntry !== undefined, '会话头部挂载了视图门控探针', gatedRegistrations.map((r) => r.def.id).join(','))
-const waitTick = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms))
-const renderProbe = async (preset) => {
+check(injectCalls.includes('conversation.view') && injectCalls.includes('conversation.session.header.utilities'), '注入视图槽与会话头部探针槽', JSON.stringify(injectCalls))
+const probeEntry = gatedRegistrations.find((entry) => entry.def.id === 'dsh-test-mode-view-gate')
+check(probeEntry !== undefined, '会话头部挂载了视图门控探针', gatedRegistrations.map((entry) => entry.def.id).join(','))
+
+const sleep = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms))
+/** 渲染门控探针,按 agentPreset 注册/注销视图。 */
+async function renderProbe(preset) {
   document.body.innerHTML = '<div id="root"></div>'
   const rootEl = document.getElementById('root')
   ReactDOM.render(react.createElement(probeEntry.component, {
     useProjection: (key) => (key === 'agentPreset' ? preset : undefined),
   }), rootEl)
-  await waitTick(20)
+  await sleep(20)
   return rootEl
 }
 await renderProbe('dsh-test-mode')
-check(registered.length === 5, `测试模式会话注册 5 个视图(实际 ${registered.length})`,
-  registered.map((r) => r.def.id).join(','))
-check(!registered.some((r) => r.def.id === 'dsh-test-mode-api' || r.def.id === 'dsh-test-mode-ui'),
-  'API/UI 不再是顶层视图(已合并为组件测试)', registered.map((r) => r.def.id).join(','))
+check(registered.length === 4, `测试模式会话注册 4 个视图(实际 ${registered.length})`, registered.map((entry) => entry.def.id).join(','))
+check(registered.every((entry) => ['dsh-test-mode-environments', 'dsh-test-mode-assets', 'dsh-test-mode-cases', 'dsh-test-mode-versions'].includes(entry.def.id)), '顶层视图为基础配置/资产库/用例/版本', registered.map((entry) => entry.def.id).join(','))
 await renderProbe('standard')
-check(registered.length === 0, '非测试模式会话注销全部视图(标签不可见)', registered.map((r) => r.def.id).join(','))
+check(registered.length === 0, '非测试模式会话注销全部视图', registered.map((entry) => entry.def.id).join(','))
 await renderProbe('dsh-test-mode')
-check(registered.length === 5, '切回测试模式会话重新注册 5 个视图', registered.map((r) => r.def.id).join(','))
-check(!registered.some((r) => r.def.id === 'dsh-test-mode-datafactory'), '数据工厂不再是顶层视图', registered.map((r) => r.def.id).join(','))
+check(registered.length === 4, '切回测试模式会话重新注册 4 个视图', registered.map((entry) => entry.def.id).join(','))
 
-let lastDraft = null
 const viewProps = {
   sessionId: 's1',
   useProjection: (key) => (key === 'agentPreset' ? projectionPreset : undefined),
   useWorkspaces: (selector) => selector({ items: [{ workspaceId: 'ws-1', sessionIds: ['s1'] }] }),
-  inputActions: { setDraft: (text) => { lastDraft = text } },
+  inputActions: { setDraft: () => {} },
 }
 
-function findAllButtons(container) {
-  return [...container.querySelectorAll('button')]
-}
-function findByText(buttons, text) {
-  return buttons.find((b) => b.textContent.trim().includes(text))
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
-async function renderView(component) {
+/** 渲染指定视图,并等待 fetch 落定。 */
+async function renderView(viewId) {
+  const entry = registered.find((item) => item.def.id === viewId)
+  if (!entry) throw new Error(`找不到视图 ${viewId}`)
   document.body.innerHTML = '<div id="root"></div>'
   const rootEl = document.getElementById('root')
-  ReactDOM.render(react.createElement(component, viewProps), rootEl)
-  // 等 useEffect 的 fetch + setState 落定
-  await sleep(30)
+  ReactDOM.render(react.createElement(entry.component, viewProps), rootEl)
+  await sleep(40)
   return rootEl
 }
-
-/**
- * 渲染「组件测试」视图,并切到指定子标签(接口 / UI 脚本)。
- * @param tabLabel - 子标签文字。
- * @returns 渲染容器。
- */
-async function renderComponentTab(tabLabel) {
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-component')
-  if (!entry) throw new Error('找不到 dsh-test-mode-component 视图')
-  const rootEl = await renderView(entry.component)
-  const button = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === tabLabel)
-  if (!button) throw new Error(`找不到子标签「${tabLabel}」`)
-  button.click()
-  await sleep(30)
-  return rootEl
+/** 按文本找按钮。 */
+function findButton(rootEl, text) {
+  return [...rootEl.querySelectorAll('button')].find((button) => button.textContent.trim().includes(text))
 }
 
-function assertNoConfirmDialog(rootEl) {
-  const text = rootEl.textContent
-  return !text.includes('取消') || !text.includes('?')
-}
-
-
-// 每个视图:渲染 → 点删除 → 断言弹窗出现 & confirm 未被调用 → 点取消关闭
-const cases = [
-  { view: 'dsh-test-mode-cases', triggerText: '删除', dialogMessage: '删除用例「登录用例」?' },
-  { view: 'dsh-test-mode-component', subTab: '接口', triggerText: '删项目', dialogMessage: '删除项目「订单服务」?' },
-  { view: 'dsh-test-mode-plans', triggerText: '删除', triggerParentText: '回归计划', dialogMessage: '删除计划「回归计划」?' },
-  { view: 'dsh-test-mode-environments', triggerText: '删除', dialogMessage: '删除环境「测试环境」?' },
-  { view: 'dsh-test-mode-component', subTab: 'UI 脚本', triggerText: '删除', dialogMessage: '删除脚本「登录流程」?' },
-  { view: 'dsh-test-mode-reports', triggerText: '删除', dialogMessage: '删除这份报告?' },
-]
-
-/** 查找文本匹配的按钮;指定 parentText 时限定在包含该文本的卡片内(计划页模板卡片先渲染)。 */
-function findTrigger(buttons, text, parentText) {
-  const matches = buttons.filter((b) => b.textContent.trim().includes(text))
-  if (!parentText) return matches[0]
-  return matches.find((b) => b.parentElement?.parentElement?.textContent.includes(parentText))
-}
-
-for (const item of cases) {
-  const entry = registered.find((r) => r.def.id === item.view)
-  if (!entry) { check(false, `${item.view} 已注册`, 'view 未注册'); continue }
-  const label = item.view.replace('dsh-test-mode-', '')
-  let rootEl
-  try {
-    rootEl = await renderView(entry.component)
-  } catch (e) {
-    check(false, `${label} 渲染`, e.message)
-    continue
+// ── 1. 基础配置 ─────────────────────────────────────────────────────────
+console.log('\n=== 基础配置 ===')
+{
+  const rootEl = await renderView('dsh-test-mode-environments')
+  check(rootEl.textContent.includes('测试环境'), '默认环境卡片渲染', rootEl.textContent.slice(0, 120))
+  const factoryTab = findButton(rootEl, '数据工厂')
+  check(factoryTab !== undefined, '基础配置含「数据工厂」子标签', '')
+  if (factoryTab) {
+    factoryTab.click()
+    await sleep(40)
+    check(rootEl.textContent.includes('手机号'), '数据工厂子标签渲染生成器', rootEl.textContent.slice(0, 160))
   }
-  check(rootEl.textContent.length > 0, `${label} 渲染出内容`, '')
+}
 
-  // 组件测试:先切到对应子标签(接口 / UI 脚本)
-  if (item.subTab) {
-    const tabButton = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === item.subTab)
-    if (!tabButton) { check(false, `${label} 子标签「${item.subTab}」存在`, ''); continue }
-    tabButton.click()
+// ── 2. 资产库 ───────────────────────────────────────────────────────────
+console.log('\n=== 资产库 ===')
+{
+  const rootEl = await renderView('dsh-test-mode-assets')
+  check(rootEl.textContent.includes('登录接口') && rootEl.textContent.includes('已固化'), '接口资产显示已固化状态', rootEl.textContent.slice(0, 160))
+  check(findButton(rootEl, '测试待测资产') !== undefined, '显示待测资产批量补测按钮', '')
+  const runButton = [...rootEl.querySelectorAll('button')].filter((button) => button.textContent.trim() === '执行')[0]
+  check(runButton !== undefined, '资产卡片有执行按钮', '')
+  if (runButton) {
+    runButton.click()
+    await sleep(60)
+    check(rootEl.textContent.includes('通过'), '执行资产后给出结果提示', rootEl.textContent.slice(-160))
+  }
+  const uiTab = findButton(rootEl, 'UI 流程')
+  check(uiTab !== undefined, '含 UI 流程子标签', '')
+  if (uiTab) {
+    uiTab.click()
+    await sleep(40)
+    check(rootEl.textContent.includes('登录流程') && rootEl.textContent.includes('未测试'), 'UI 流程资产显示未测试', rootEl.textContent.slice(0, 160))
+  }
+  const createButton = findButton(rootEl, '+ 新建资产')
+  check(createButton !== undefined, '资产库有新建入口', '')
+}
+
+// ── 3. 用例 ─────────────────────────────────────────────────────────────
+console.log('\n=== 用例 ===')
+{
+  const rootEl = await renderView('dsh-test-mode-cases')
+  check(rootEl.textContent.includes('登录用例') && rootEl.textContent.includes('1 个资产'), '用例显示资产组合数量', rootEl.textContent.slice(0, 160))
+  const runButton = findButton(rootEl, '执行')
+  check(runButton !== undefined, '用例卡片有执行按钮', '')
+  if (runButton) {
+    runButton.click()
+    await sleep(60)
+    check(rootEl.textContent.includes('用例执行') && rootEl.textContent.includes('1/1 通过'), '执行用例显示通过结果', rootEl.textContent.slice(-200))
+  }
+  check(findButton(rootEl, '+ 新建用例') !== undefined, '用例页有新建入口', '')
+}
+
+// ── 4. 版本 ─────────────────────────────────────────────────────────────
+console.log('\n=== 版本 ===')
+{
+  const rootEl = await renderView('dsh-test-mode-versions')
+  check(rootEl.textContent.includes('待测资产 1') && rootEl.textContent.includes('版本'), '版本页显示待测资产计数', rootEl.textContent.slice(0, 160))
+  const saveButton = findButton(rootEl, '保存为版本')
+  check(saveButton !== undefined, '版本页有「保存为版本」按钮(由服务端校验)', JSON.stringify(saveButton?.disabled))
+  const runButton = findButton(rootEl, '发起全量系统测试')
+  check(runButton !== undefined, '版本页有全量测试入口', '')
+  if (runButton) {
+    runButton.click()
+    await sleep(200)
+    check(rootEl.textContent.includes('全量测试完成'), '全量测试批量执行并给出完成提示', rootEl.textContent.slice(-200))
+    check(state.pending.pending === 0, '全量测试后没有待测资产', JSON.stringify(state.pending))
+  }
+  const saveAfter = findButton(rootEl, '保存为版本')
+  if (saveAfter) {
+    saveAfter.click()
+    await sleep(80)
+    check(rootEl.textContent.includes('版本已保存') && rootEl.textContent.includes('全量系统测试 1'), '保存版本成功并出现在列表', rootEl.textContent.slice(-200))
+  }
+  const deleteButton = [...rootEl.querySelectorAll('button')].filter((button) => button.textContent.trim() === '删除')[0]
+  check(deleteButton !== undefined, '版本卡片有删除按钮', '')
+  if (deleteButton) {
+    deleteButton.click()
     await sleep(30)
-  }
-
-  // 接口子标签:需要先选中项目才会出现「删项目」按钮
-  if (item.view === 'dsh-test-mode-component' && item.subTab === '接口') {
-    const projectRow = [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes('订单服务'))
-    if (!projectRow) { check(false, `${label} 项目行存在`, '未找到项目行'); continue }
-    projectRow.click()
+    check(rootEl.textContent.includes('删除版本「全量系统测试 1」?'), '删除版本弹出自研 ConfirmDialog', rootEl.textContent.slice(-200))
+    check(confirmCalls === 0, '删除不调用 window.confirm', String(confirmCalls))
+    const cancelButton = [...rootEl.querySelectorAll('button')].find((button) => button.textContent.trim() === '取消')
+    cancelButton.click()
     await sleep(20)
-  }
-
-  const buttons = findAllButtons(rootEl)
-  const trigger = findTrigger(buttons, item.triggerText, item.triggerParentText)
-  if (!trigger) { check(false, `${label} 删除按钮存在`, '未找到触发按钮'); continue }
-  confirmCalls = 0
-  deleteCalls = 0
-  trigger.click()
-  await sleep(20)
-
-  const dialogOpen = rootEl.textContent.includes(item.dialogMessage) && rootEl.textContent.includes('取消')
-  check(dialogOpen, `${label} 删除弹出自研确认框`, `期望文案「${item.dialogMessage}」`)
-  check(confirmCalls === 0, `${label} 未调用 window.confirm`, `confirm 被调了 ${confirmCalls} 次`)
-  check(deleteCalls === 0, `${label} 未确认前不发起 DELETE`, `DELETE 已发 ${deleteCalls} 次`)
-
-  // 点取消 → 关闭弹窗
-  const cancelBtn = findByText(findAllButtons(rootEl), '取消')
-  if (cancelBtn) {
-    cancelBtn.click()
-    await sleep(20)
-    check(!rootEl.textContent.includes(item.dialogMessage), `${label} 取消后弹窗关闭`, '')
-  }
-
-  // 再点删除 → 点确认 → 发起 DELETE
-  const trigger2 = findTrigger(findAllButtons(rootEl), item.triggerText, item.triggerParentText)
-  if (trigger2) {
-    trigger2.click()
-    await sleep(20)
-    const okBtn = [...findAllButtons(rootEl)].filter((b) => b.textContent.trim() === '删除').pop()
-    if (okBtn) {
-      okBtn.click()
-      await sleep(20)
-      check(deleteCalls === 1, `${label} 确认后发起 DELETE`, `DELETE 次数 ${deleteCalls}`)
-    } else {
-      check(false, `${label} 确认按钮存在`, '未找到确认按钮')
-    }
+    check(state.versions.length === 1, '取消删除后版本仍存在', String(state.versions.length))
   }
 }
 
-// API 视图的新建项目/集合:自研 PromptDialog 替代 window.prompt
+// ── 5. 版本保存前置校验(失败清单) ───────────────────────────────────────
+console.log('\n=== 版本保存校验 ===')
 {
-  const rootEl = await renderComponentTab('接口')
-  let promptCalls = 0
-  window.prompt = () => { promptCalls++; return 'X' }
-  const addProjectBtn = findByText(findAllButtons(rootEl), '+ 项目')
-  addProjectBtn.click()
-  await sleep(20)
-  check(rootEl.textContent.includes('新建项目') && rootEl.textContent.includes('确定'), 'API 新建项目用自研输入框', '')
-  check(promptCalls === 0, 'API 新建项目未调用 window.prompt', `prompt 被调了 ${promptCalls} 次`)
-}
-
-// 环境选择器:组件测试(接口/UI 脚本)与用例页默认统一为「(默认环境)」
-{
-  for (const [tabLabel, label] of [['接口', 'API'], ['UI 脚本', 'UI']]) {
-    const rootEl = await renderComponentTab(tabLabel)
-    const select = [...rootEl.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.textContent.includes('默认环境')))
-    check(select !== undefined && select.value === '', `${label} 页 环境默认(默认环境)`, select ? `value=${select.value}` : '无环境下拉')
+  state.assets.push({
+    id: 'api:broken', kind: 'api', module: '登录', name: '坏接口', tags: [],
+    request: { method: 'GET', url: '/api/broken' }, baseUrl: 'http://x', status: 'failed',
+  })
+  state.assets.find((asset) => asset.id === 'ui:login-flow').status = 'untested'
+  recomputePending()
+  const rootEl = await renderView('dsh-test-mode-versions')
+  const saveButton = findButton(rootEl, '保存为版本')
+  if (saveButton) {
+    saveButton.click()
+    await sleep(80)
+    check(rootEl.textContent.includes('还不能保存版本') && rootEl.textContent.includes('坏接口'), '保存版本被拒并列出失败资产', rootEl.textContent.slice(-220))
   }
-  const casesEntry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  const rootEl = await renderView(casesEntry.component)
-  const select = [...rootEl.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.textContent.includes('默认环境')))
-  check(select !== undefined && select.value === '', '用例 页 环境默认(默认环境)', select ? `value=${select.value}` : '无环境下拉')
-}
-
-// API 树:点击分类只展开该分类的接口清单,可收缩可展开(手风琴)
-{
-  const rootEl = await renderComponentTab('接口')
-  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
-
-  // 初始:项目行收起,无集合/请求
-  check(!rootEl.textContent.includes('订单接口'), 'API 树 初始集合不可见', '')
-  rowByText('订单服务').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('订单接口') && rootEl.textContent.includes('1'), 'API 树 点击项目展开集合列表', '')
-  check(!rootEl.textContent.includes('创建订单'), 'API 树 集合默认收起,不显示接口清单', '')
-
-  // 点击分类 → 只显示该分类的接口清单
-  rowByText('订单接口').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('创建订单'), 'API 树 点击分类展开接口清单', '')
-
-  // 再点同一分类 → 收缩
-  rowByText('订单接口').click()
-  await sleep(20)
-  check(!rootEl.textContent.includes('创建订单'), 'API 树 再次点击分类收缩接口清单', '')
-
-  // 再点 → 又展开
-  rowByText('订单接口').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('创建订单'), 'API 树 第三次点击重新展开', '')
-
-  // 点项目收起 → 整棵子树隐藏
-  rowByText('订单服务').click()
-  await sleep(20)
-  check(!rootEl.textContent.includes('订单接口'), 'API 树 点击项目收缩整棵子树', '')
-}
-
-// API 树:无 id 集合(旧数据)点击只展开自身,不误展开其他分类
-{
-  const rootEl = await renderComponentTab('接口')
-  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
-  rowByText('订单服务').click()
-  await sleep(20)
-  rowByText('无ID集合').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('无ID请求'), 'API 树 无id分类点击只展开自身', '')
-  check(!rootEl.textContent.includes('创建订单'), 'API 树 无id分类展开时其他分类保持收起', '')
-  rowByText('无ID集合').click()
-  await sleep(20)
-  check(!rootEl.textContent.includes('无ID请求'), 'API 树 无id分类可收缩', '')
-}
-
-// API 请求编辑器:数据工厂按钮单一来源(后端合并列表),内置生成器不重复
-{
-  const rootEl = await renderComponentTab('接口')
-  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
-  rowByText('订单服务').click()
-  await sleep(20)
-  rowByText('订单接口').click()
-  await sleep(20)
-  rowByText('创建订单').click()
-  await sleep(20)
-  const phoneCount = (rootEl.textContent.match(/手机号/g) ?? []).length
-  check(phoneCount === 1, 'API 编辑器 内置生成器按钮不重复', `「手机号」出现 ${phoneCount} 次`)
-  check(rootEl.textContent.includes('用户名 ✦'), 'API 编辑器 自定义生成器按钮存在', '')
-  const phoneBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '手机号')
-  phoneBtn.click()
-  await sleep(20)
-  check(rootEl.textContent.includes('{{rand.phone}}'), 'API 编辑器 点击内置生成器插入 token', '')
-}
-
-// 接口状态与「通过数据」复用:请求树显示已通过,详情可一键填回通过时的请求数据
-{
-  const rootEl = await renderComponentTab('接口')
-  await sleep(20)
-  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
-  rowByText('订单服务').click()
-  await sleep(20)
-  rowByText('订单接口').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('已通过'), '接口树显示接口状态(已通过)', '')
-  rowByText('创建订单').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('使用上次通过的数据'), '请求详情提供「使用上次通过的数据」', '')
-  const useBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '使用上次通过的数据')
-  useBtn.click()
-  await sleep(30)
-  const urlInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === '/orders-passed')
-  check(urlInput !== undefined, '点击后把通过时的请求数据填回编辑器', [...rootEl.querySelectorAll('input')].map((i) => i.value).join('|').slice(0, 160))
-}
-
-// UI 脚本状态与「通过版本」:脚本卡片显示已通过,步骤有差异时可恢复到通过时的步骤
-{
-  const rootEl = await renderComponentTab('UI 脚本')
-  await sleep(20)
-  check(rootEl.textContent.includes('已通过'), 'UI 脚本卡片显示执行状态(已通过)', '')
-  const restoreBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '恢复通过版本')
-  check(restoreBtn !== undefined, '步骤与通过版本不一致时提供「恢复通过版本」', '')
-  restoreBtn.click()
-  await sleep(30)
-  check(rootEl.textContent.includes('已恢复为上次通过的脚本版本'), '点击恢复通过版本后给出成功提示', '')
-}
-
-// 数据工厂(已合并进「基础配置」作为子标签):小卡片网格 + 点击弹窗详情(编辑/删除在弹窗内,内置只读)
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-environments')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  // 基础配置工具栏含「环境 / 标签 / 数据参考 / 数据工厂」四个子标签
-  const tabNames = [...rootEl.querySelectorAll('button')].map((b) => b.textContent.trim())
-  check(tabNames.includes('数据工厂') && tabNames.includes('环境') && tabNames.includes('标签') && tabNames.includes('数据参考'),
-    '基础配置页 含数据工厂子标签', tabNames.slice(0, 8).join(','))
-  const factoryTab = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '数据工厂')
-  factoryTab.click()
-  await sleep(40)
-  const cards = [...rootEl.querySelectorAll('[role="button"]')].filter((el) => el.textContent.includes('{{') )
-  check(cards.length === 2, '基础配置·数据工厂 生成器小卡片渲染', `卡片数 ${cards.length}`)
-  check(rootEl.textContent.includes('用户名 ✦'), '基础配置·数据工厂 自定义卡片带✦标记', '')
-  check(!rootEl.textContent.includes('删除生成器'), '基础配置·数据工厂 列表本身无删除按钮(在弹窗内)', '')
-  // 点击自定义卡片 → 详情弹窗(编辑/删除/示例)
-  const customCard = cards.find((el) => el.textContent.includes('用户名'))
-  customCard.click()
-  await sleep(40)
-  check(rootEl.textContent.includes('自定义') && rootEl.textContent.includes('{{factory.username}}'), '基础配置·数据工厂 弹窗显示类型与token', '')
-  check(rootEl.textContent.includes('13800001234'), '基础配置·数据工厂 弹窗含示例预览', '')
-  check(!rootEl.textContent.includes('插入到 Body'), '基础配置·数据工厂 弹窗无插入按钮', '')
-  // 弹窗内点删除 → 确认弹窗 → 确认 → DELETE
-  deleteCalls = 0
-  const delInDialog = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '删除')
-  delInDialog.click()
-  await sleep(20)
-  check(rootEl.textContent.includes('删除生成器「用户名」?'), '基础配置·数据工厂 弹窗删除先出确认框', '')
-  const okBtn = [...rootEl.querySelectorAll('button')].filter((b) => b.textContent.trim() === '删除').pop()
-  okBtn.click()
-  await sleep(20)
-  check(deleteCalls === 1, '基础配置·数据工厂 确认后发起 DELETE', `DELETE 次数 ${deleteCalls}`)
-  // 内置卡片 → 弹窗无编辑/删除按钮
-  await renderView(entry.component)
-  await sleep(30)
-  ;[...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '数据工厂').click()
-  await sleep(40)
-  const phoneCard = [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes('手机号') && el.textContent.includes('{{rand.phone}}'))
-  phoneCard.click()
-  await sleep(40)
-  const dialogBtns = [...rootEl.querySelectorAll('button')].map((b) => b.textContent.trim())
-  check(rootEl.textContent.includes('内置') && !dialogBtns.includes('编辑') && !dialogBtns.includes('删除'), '基础配置·数据工厂 内置卡片弹窗只读', `按钮: ${dialogBtns.join(',')}`)
-}
-
-
-// 基础配置页(原环境页):环境/标签子标签 + 标签管理
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-environments')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  check(rootEl.textContent.includes('基础配置'), '基础配置页 标题', '')
-  const tabBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '标签')
-  check(tabBtn !== undefined, '基础配置页 有标签子标签', '')
-  tabBtn.click()
-  await sleep(20)
-  check(rootEl.textContent.includes('冒烟') && rootEl.textContent.includes('登录'), '基础配置页 标签列表显示', '')
-  // 新增标签(Simulate 走 React 合成事件,jsdom 原生 input 事件不可靠)
-  const input = [...rootEl.querySelectorAll('input')].find((i) => i.placeholder?.includes('新标签名'))
-  TestUtils.Simulate.change(input, { target: { value: '回归' } })
-  await sleep(20)
-  const addBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.includes('+ 添加'))
-  addBtn.click()
-  await sleep(20)
-  check(rootEl.textContent.includes('回归'), '基础配置页 新增标签', '')
-  // 删除标签 → 确认弹窗
-  const delBtn = [...rootEl.querySelectorAll('button')].filter((b) => b.textContent.trim() === '×')
-  delBtn[0].click()
-  await sleep(20)
-  check(rootEl.textContent.includes('删除标签'), '基础配置页 删除标签先确认', '')
-}
-
-// 用例编辑器:标签 chips 从标签库选择
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  const newBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.includes('+ 新建用例'))
-  newBtn.click()
-  await sleep(20)
-  check(rootEl.textContent.includes('冒烟'), '用例编辑器 标签库chips显示', '')
-  const chip = [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.trim() === '冒烟')
-  chip.click()
-  await sleep(10)
-  check(rootEl.textContent.includes('冒烟 ✓'), '用例编辑器 点击chips选中标签', '')
-}
-
-// 基础配置页:数据参考子标签(解析的 dbdata 表展示)
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-environments')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  const tabBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '数据参考')
-  check(tabBtn !== undefined, '基础配置页 有数据参考子标签', '')
-  tabBtn.click()
-  await sleep(30)
-  check(rootEl.textContent.includes('users') && rootEl.textContent.includes('csv'), '数据参考 表列表显示', '')
-  check(rootEl.textContent.includes('2 行') && rootEl.textContent.includes('id, name'), '数据参考 行数与字段', '')
-  check(rootEl.textContent.includes('alice') && rootEl.textContent.includes('schema.md'), '数据参考 样例与schema', '')
-}
-
-// 一键 AI 生成按钮:组件测试两个子标签与用例页均有「AI 生成」入口
-{
-  // 组件测试 · 接口:两个按钮(所有接口 mock / 缺口 mock)
-  let rootEl = await renderComponentTab('接口')
-  const aiButtons = [...rootEl.querySelectorAll('button')].filter((b) => b.textContent.includes('AI 生成'))
-  check(aiButtons.length === 2, '组件测试·接口 两个 AI 生成按钮', `实际 ${aiButtons.length}`)
-  check(aiButtons.some((b) => b.title?.includes('缺口')), '组件测试·接口 缺口 mock 按钮', aiButtons.map((b) => b.title).join('|'))
-  // 用例页:AI 生成按钮
-  const casesEntry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  rootEl = await renderView(casesEntry.component)
-  check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.includes('AI 生成')), '用例页 AI 生成按钮', '')
-  // 组件测试 · UI 脚本:脚本/元素库各有 AI 按钮
-  rootEl = await renderComponentTab('UI 脚本')
-  check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.includes('AI 生成')), '组件测试·UI 脚本 AI 生成按钮(脚本tab)', '')
-  const elTab = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '元素库')
-  elTab.click()
-  await sleep(20)
-  check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.includes('AI 生成') && b.title?.includes('元素')), '组件测试·UI 脚本 AI 生成按钮(元素库tab)', '')
-}
-
-// mock 提示词内容:默认环境变量 + 真实接口清单;缺口提示词含缺口清单
-{
-  const rootEl = await renderComponentTab('接口')
-  await sleep(30)
-  lastDraft = null
-  const allBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.includes('全部 mock'))
-  allBtn.click()
-  await sleep(10)
-  check(lastDraft !== null && lastDraft.includes('默认环境变量') && lastDraft.includes('BASE_URL'), 'mock 提示词 含默认环境变量', lastDraft ?? '')
-  check(lastDraft !== null && lastDraft.includes('创建订单') && lastDraft.includes('无ID请求'), 'mock 提示词 含全部项目真实接口清单', lastDraft ?? '')
-  lastDraft = null
-  const gapBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.includes('缺口 mock'))
-  gapBtn.click()
-  await sleep(10)
-  check(lastDraft !== null && lastDraft.includes('缺口接口') && lastDraft.includes('从未测试'), '缺口 mock 提示词 含缺口清单', lastDraft ?? '')
-}
-
-// 场景用例提示词:业务场景驱动,接口融入用例
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  lastDraft = null
-  const sceneBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.includes('场景用例'))
-  sceneBtn.click()
-  await sleep(10)
-  check(lastDraft !== null && lastDraft.includes('业务场景') && lastDraft.includes('接口融入用例'), '场景用例提示词 业务场景驱动', lastDraft ?? '')
-  check(lastDraft !== null && lastDraft.includes('订单服务'), '场景用例提示词 含可用项目接口概况', lastDraft ?? '')
-}
-
-// 单用例 AI 完善:列表卡片编辑按钮旁有 AI 按钮,提示词含用例现状与接口概况
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  lastDraft = null
-  const improveBtn = [...rootEl.querySelectorAll('button')].find((b) => b.title?.includes('AI 完善该用例'))
-  check(improveBtn !== undefined, '用例列表 单用例 AI 完善按钮', '')
-  improveBtn.click()
-  await sleep(10)
-  check(lastDraft !== null && lastDraft.includes('完善测试用例') && lastDraft.includes('登录用例'), '单用例提示词 含用例现状', lastDraft ?? '')
-  check(lastDraft !== null && lastDraft.includes('订单服务'), '单用例提示词 含接口概况', lastDraft ?? '')
-}
-
-// 用例编辑器:API 绑定步骤显示数据覆盖编辑区(URL/Body/Query/Headers)
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  const newBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.includes('+ 新建用例'))
-  newBtn.click()
-  await sleep(20)
-  // 新步骤默认手动;切换到 API 绑定后出现数据覆盖区
-  const bindSelect = [...rootEl.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.textContent === 'API 请求'))
-  bindSelect.value = 'api'
-  bindSelect.dispatchEvent(new window.Event('change', { bubbles: true }))
-  await sleep(20)
-  check(rootEl.textContent.includes('数据覆盖(可选)'), '用例编辑器 API 步骤显示数据覆盖区', '')
-  check([...rootEl.querySelectorAll('textarea')].some((t) => t.placeholder?.includes('Body 覆盖')), '用例编辑器 数据覆盖含 Body 编辑', '')
-}
-
-// 报告体系:筛选栏 / 统计 tab / 详情对比条 / 趋势折线
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-reports')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  check([...rootEl.querySelectorAll('input')].some((i) => i.placeholder?.includes('搜索报告名称')), '报告页 筛选搜索栏', '')
-  check([...rootEl.querySelectorAll('select')].some((s) => [...s.options].some((o) => o.textContent === '类型:全部')), '报告页 类型筛选', '')
-  // 统计 tab:接口健康度 + 失败 Top
-  const statsTab = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '统计')
-  statsTab.click()
-  await sleep(30)
-  check(rootEl.textContent.includes('接口健康度') && rootEl.textContent.includes('/api/me'), '统计页 接口健康度', '')
-  check(rootEl.textContent.includes('失败接口 Top') && rootEl.textContent.includes('失败断言 Top'), '统计页 失败 Top', '')
-  // 详情:对比条 + 趋势
-  const reportTab = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '报告')
-  reportTab.click()
-  await sleep(20)
-  const viewBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '查看')
-  viewBtn.click()
-  await sleep(40)
-  check(rootEl.textContent.includes('与上次对比') && rootEl.textContent.includes('新失败'), '报告详情 对比条', '')
-  check(rootEl.textContent.includes('回归趋势'), '报告详情 趋势折线', '')
-}
-
-// API 详情页:AI 生成 · 本接口 mock 按钮必须能把提示词填入输入框
-{
-  const rootEl = await renderComponentTab('接口')
-  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
-  rowByText('订单服务').click()
-  await sleep(20)
-  rowByText('订单接口').click()
-  await sleep(20)
-  rowByText('创建订单').click()
-  await sleep(20)
-  lastDraft = null
-  const mockBtn = findAllButtons(rootEl).find((b) => b.textContent.includes('本接口 mock'))
-  check(mockBtn !== undefined, 'API 详情页 本接口 mock 按钮存在', '')
-  mockBtn.click()
-  await sleep(20)
-  check(lastDraft !== null && lastDraft.includes('测试数据') && lastDraft.includes('创建订单'), 'API 详情页 AI 按钮填入输入框(含接口名)', lastDraft ?? '')
-}
-
-// API 详情页:headers/query 对象格式(后端格式)可正常打开,编辑后回写对象格式
-{
-  const rootEl = await renderComponentTab('接口')
-  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
-  rowByText('订单服务').click()
-  await sleep(20)
-  rowByText('订单接口').click()
-  await sleep(20)
-  rowByText('创建订单').click()
-  await sleep(20)
-  // 对象格式 headers/query 不再导致 KeyValueEditor 崩溃
-  check(rootEl.textContent.includes('Headers') && rootEl.textContent.includes('Query'), '详情页 对象格式 headers/query 正常渲染', '')
-  const headerValueInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === 'application/json')
-  const queryValueInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === '1')
-  check(headerValueInput !== undefined && queryValueInput !== undefined, '详情页 对象格式转为编辑行', headerValueInput ? '' : 'header 行缺失')
-  // 编辑 header 值 → 执行请求 → 请求体里 headers 必须是对象格式(服务端执行兼容)
-  lastRunRequest = null
-  TestUtils.Simulate.change(headerValueInput, { target: { value: 'text/plain' } })
-  await sleep(10)
-  const runBtn = findAllButtons(rootEl).find((b) => b.textContent.includes('执行请求'))
-  runBtn.click()
-  await sleep(30)
-  check(lastRunRequest !== null && typeof lastRunRequest.request.headers === 'object' && !Array.isArray(lastRunRequest.request.headers)
-    && lastRunRequest.request.headers['content-type'] === 'text/plain', '编辑后执行请求 headers 为对象格式', JSON.stringify(lastRunRequest?.request?.headers))
-}
-
-// API 详情页:旧数组格式 headers(旧客户端产物)也能打开
-{
-  const rootEl = await renderComponentTab('接口')
-  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
-  rowByText('订单服务').click()
-  await sleep(20)
-  rowByText('无ID集合').click()
-  await sleep(20)
-  rowByText('无ID请求').click()
-  await sleep(20)
-  const oldKeyInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === 'x-old')
-  check(oldKeyInput !== undefined, '旧数组格式 headers 正常打开并渲染行', oldKeyInput ? '' : 'x-old 行缺失')
-}
-
-// ── 计划模块:AI 排计划 / 模板 / 多选弹窗 / 增量 / 复制 / 推荐补入 ──────
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-plans')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  const btns = () => findAllButtons(rootEl)
-  check(findByText(btns(), 'AI 生成 · 排计划') !== undefined, '计划页 AI 排计划按钮', '')
-  check(findByText(btns(), '重跑上次失败') !== undefined, '计划页 重跑上次失败按钮', '')
-  check(findByText(btns(), '复制') !== undefined, '计划页 复制按钮', '')
-  check(findByText(btns(), '刷新') !== undefined, '计划页 刷新按钮', '')
-  check(rootEl.textContent.includes('模板(1)') && rootEl.textContent.includes('全量回归模板'), '计划页 模板区', '')
-  check(findByText(btns(), '从模板新建') !== undefined, '计划页 从模板新建按钮', '')
-  check(rootEl.textContent.includes('1 用例'), '计划页 条目摘要(1 用例)', '')
-  // AI 排计划:意图输入 → draft 填充
-  lastDraft = null
-  findByText(btns(), 'AI 生成 · 排计划').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('AI 排计划'), 'AI 排计划 弹出意图输入', '')
-  const intentInput = [...rootEl.querySelectorAll('input')].pop()
-  TestUtils.Simulate.change(intentInput, { target: { value: '增量:本次迭代涉及订单模块' } })
-  await sleep(10)
-  findByText(btns(), '确定').click()
-  await sleep(20)
-  check(lastDraft !== null && lastDraft.includes('创建测试计划') && lastDraft.includes('incremental') && lastDraft.includes('订单模块'), 'AI 排计划 draft 含意图与条目规范', lastDraft ?? '')
-}
-
-// 计划编辑器:四个添加弹窗 + 推荐补入 + 模板开关
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-plans')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  findByText(findAllButtons(rootEl), '+ 新建计划').click()
-  await sleep(40) // 等推荐补入的 failures 拉取
-  const btns = () => findAllButtons(rootEl)
-  check(findByText(btns(), '+ 用例…') !== undefined, '计划编辑器 用例多选按钮', '')
-  check(findByText(btns(), '+ 集合…') !== undefined, '计划编辑器 集合多选按钮', '')
-  check(findByText(btns(), '+ UI 脚本…') !== undefined, '计划编辑器 UI 脚本按钮', '')
-  check(findByText(btns(), '+ 增量变更…') !== undefined, '计划编辑器 增量按钮', '')
-  check(rootEl.textContent.includes('存为模板'), '计划编辑器 模板开关', '')
-  // 智能推荐:失败接口 /api/me 被 c1 覆盖
-  check(rootEl.textContent.includes('建议补入') && rootEl.textContent.includes('登录用例'), '计划编辑器 推荐补入(失败接口覆盖用例)', '')
-  // 用例多选弹窗:搜索 + 全选 + 添加
-  findByText(btns(), '+ 用例…').click()
-  await sleep(20)
-  check([...rootEl.querySelectorAll('input')].some((i) => i.placeholder?.includes('搜索名称/描述/标签')), '用例弹窗 搜索框', '')
-  check(findByText(btns(), '全选当前') !== undefined, '用例弹窗 全选按钮', '')
-  findByText(btns(), '全选当前').click()
-  await sleep(10)
-  findByText(btns(), '添加 1 个').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('登录用例'), '计划编辑器 添加用例条目', '')
-  // 集合弹窗:一键全量
-  findByText(btns(), '+ 集合…').click()
-  await sleep(20)
-  check(findByText(btns(), '全选全部项目(全量)') !== undefined, '集合弹窗 一键全量按钮', '')
-  findByText(btns(), '全选全部项目(全量)').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('订单服务 / 订单接口'), '计划编辑器 添加集合条目', '')
-  // UI 脚本弹窗
-  findByText(btns(), '+ UI 脚本…').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('登录流程'), 'UI 弹窗 脚本列表', '')
-  const scriptCheckbox = [...rootEl.querySelectorAll('input[type="checkbox"]')].pop()
-  scriptCheckbox.click()
-  await sleep(10)
-  findByText(btns(), '添加 1 个').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('登录流程') && rootEl.textContent.includes('UI'), '计划编辑器 添加 UI 条目', '')
-}
-
-// 增量变更弹窗:基线 + 预览 + 缺口 + 添加条目
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-plans')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  findByText(findAllButtons(rootEl), '+ 新建计划').click()
-  await sleep(20)
-  const btns = () => findAllButtons(rootEl)
-  findByText(btns(), '+ 增量变更…').click()
-  await sleep(30) // 等基线 reports 拉取
-  check(rootEl.textContent.includes('增量变更(版本迭代)'), '增量弹窗 标题', '')
-  check([...rootEl.querySelectorAll('input')].some((i) => i.type === 'datetime-local'), '增量弹窗 基线时间输入', '')
-  findByText(btns(), '预览展开结果').click()
-  await sleep(30)
-  check(rootEl.textContent.includes('变更接口 2'), '增量弹窗 预览计数', '')
-  check(rootEl.textContent.includes('暂无用例覆盖') && rootEl.textContent.includes('POST /api/x'), '增量弹窗 缺口提示', '')
-  findByText(btns(), '添加增量条目').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('增量') && rootEl.textContent.includes('执行时展开'), '计划编辑器 增量条目', '')
-}
-
-// 从模板新建 + 复制计划
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-plans')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  findByText(findAllButtons(rootEl), '从模板新建').click()
-  await sleep(20)
-  const editorNameInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === '全量回归模板')
-  check(rootEl.textContent.includes('从模板新建') && editorNameInput !== undefined, '从模板新建 打开编辑器并预填', editorNameInput ? '' : '名称未预填')
-  findByText(findAllButtons(rootEl), '← 返回列表').click()
-  await sleep(20)
-  planPostCalls = 0
-  findByText(findAllButtons(rootEl), '复制').click()
-  await sleep(20)
-  check(planPostCalls === 1, '复制计划 发起 POST /api/plans', `POST 次数 ${planPostCalls}`)
-}
-
-// 迭代增量:增量弹窗模块声明 + 来源拆分
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-plans')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  findByText(findAllButtons(rootEl), '+ 新建计划').click()
-  await sleep(20)
-  const btns = () => findAllButtons(rootEl)
-  findByText(btns(), '+ 增量变更…').click()
-  await sleep(30)
-  check([...rootEl.querySelectorAll('button')].some((b) => b.textContent.trim() === '冒烟'), '增量弹窗 模块标签 chips', '')
-  const moduleChip = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '登录')
-  moduleChip.click()
-  await sleep(10)
-  findByText(btns(), '预览展开结果').click()
-  await sleep(30)
-  check(rootEl.textContent.includes('来源:变更清单'), '增量弹窗 来源拆分(变更清单)', '')
-  check(rootEl.textContent.includes('UI 脚本 1/1'), '增量弹窗 预览含 UI 脚本计数', '')
-  findByText(btns(), '添加增量条目').click()
-  await sleep(20)
-  check(rootEl.textContent.includes('模块:登录'), '计划编辑器 增量条目含模块声明', '')
-}
-
-// 用例页:AI 生成 · 智能绑定接口(存量 prose 用例补 requestRef)
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  lastDraft = null
-  const bindBtn = findAllButtons(rootEl).find((b) => b.textContent.includes('智能绑定接口'))
-  check(bindBtn !== undefined, '用例页 智能绑定按钮存在', '')
-  bindBtn.click()
-  await sleep(20)
-  check(lastDraft !== null && lastDraft.includes('requestRef') && lastDraft.includes('订单服务'), '智能绑定 draft 含绑定要求与接口概况', lastDraft ?? '')
-}
-
-// 报告详情:迭代归因徽章(失败接口出现在变更清单 → 「本版本已变更」)
-{
-  const entry = registered.find((r) => r.def.id === 'dsh-test-mode-reports')
-  const rootEl = await renderView(entry.component)
-  await sleep(30)
-  const viewButtons = [...rootEl.querySelectorAll('button')].filter((b) => b.textContent.trim() === '查看')
-  viewButtons[viewButtons.length - 1].click() // 列表尾部的 rep2(有失败结果)
-  await sleep(40)
-  check(rootEl.textContent.includes('本版本已变更'), '报告详情 失败项归因徽章(本版本已变更)', rootEl.textContent.slice(0, 200))
-}
-
-
-// 会话模式内容门控:非测试模式会话渲染占位页(第二层兜底)
-{
-  const saved = projectionPreset
-  projectionPreset = 'standard'
-  const casesEntry = registered.find((r) => r.def.id === 'dsh-test-mode-cases')
-  const rootEl = await renderView(casesEntry.component)
-  await sleep(10)
-  check(rootEl.textContent.includes('仅在测试模式会话中可用'), '非测试模式会话显示占位页', rootEl.textContent.slice(0, 120))
-  projectionPreset = saved
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)
