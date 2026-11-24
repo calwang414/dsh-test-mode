@@ -46,7 +46,7 @@ const { SystemPrompt } = await import(pathToFileURL(join(HARNESS_ROOT, '@deepsee
 const { ToolRuntime } = await import(pathToFileURL(join(HARNESS_ROOT, '@deepseek-ai/dsh-tools/lib/index.js')).href)
 
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { apply, inject, validateTestModeFile } from '../lib/index.js'
@@ -425,6 +425,58 @@ check(exportRes.s === 200, 'export markdown status 200', String(exportRes.s))
 check(typeof exportRes.body === 'string' && exportRes.body.startsWith('# '), 'export returns markdown', String(exportRes.body).slice(0, 80))
 check(exportRes.body.includes('| # | 名称 |'), 'export has table header', '')
 check(exportRes.body.includes('认证'), 'export contains collection name', '')
+
+// ── 4.6 报告体积治理(截断写入 + 侧车索引 + 旧报告裁剪) ──────────────────
+console.log('\n=== 报告体积治理 ===')
+{
+  const { trimReport, saveReport } = await import('../lib/reports.js')
+  const reportsRoot = join(workspacePath, 'test-mode')
+  const huge = Array.from({ length: 50000 }, (_, i) => ({ id: i, name: `row-${i}`, sqlText: 'SELECT '.repeat(20) }))
+
+  // 1) 写入截断:超大断言 actual 压缩为预览(否则单份报告可达数百 MB)
+  const synthetic = {
+    id: 'report-synthetic-big', kind: 'collection', name: '大报告', createdAt: new Date().toISOString(),
+    durationMs: 1, summary: { total: 1, passed: 1, failed: 0 },
+    results: [{ name: '列表', method: 'POST', url: '/list', pass: true, status: 200, assertions: [{ pass: true, actual: huge, expected: 'x' }] }],
+  }
+  const trimmed = trimReport(synthetic)
+  check(JSON.stringify(trimmed).length < 20000, 'trimReport compresses huge assertion actual', String(JSON.stringify(trimmed).length))
+  check(trimmed.results[0].assertions[0].actual?.truncated === true, 'trimReport marks truncated value', JSON.stringify(trimmed.results[0].assertions[0].actual).slice(0, 120))
+  await saveReport(reportsRoot, synthetic)
+  const syntheticStat = await stat(join(reportsRoot, 'reports', 'report-synthetic-big.json'))
+  check(syntheticStat.size < 50000, 'report body on disk stays small', String(syntheticStat.size))
+
+  // 2) 列表只读侧车:不返回完整 results
+  const listed = await api('GET', '/api/reports', undefined, { workspaceId })
+  const savedSummary = listed.body.reports.find((r) => r.id === 'report-synthetic-big')
+  check(savedSummary !== undefined && savedSummary.results === undefined, 'report list returns summaries without full results', JSON.stringify(Object.keys(savedSummary ?? {})))
+  check(savedSummary?.summary?.total === 1, 'report summary survives sidecar index', JSON.stringify(savedSummary?.summary))
+
+  // 3) 旧报告(无侧车):列表给 stub 不解析正文;单份详情按需裁剪
+  const legacyId = 'report-legacy-huge'
+  const legacyBody = {
+    id: legacyId, kind: 'collection', name: '旧大报告', createdAt: new Date().toISOString(),
+    durationMs: 1, summary: { total: 1, passed: 1, failed: 0 },
+    results: [{ name: '列表', method: 'POST', url: '/list', pass: true, status: 200, assertions: [{ pass: true, actual: huge, expected: 'x' }] }],
+  }
+  await writeFile(join(reportsRoot, 'reports', `${legacyId}.json`), JSON.stringify(legacyBody))
+  const listedLegacy = await api('GET', '/api/reports', undefined, { workspaceId })
+  const legacySummary = listedLegacy.body.reports.find((r) => r.id === legacyId)
+  check(legacySummary?.legacy === true && String(legacySummary?.name ?? '').includes('旧报告'), 'legacy report listed as stub without parsing body', JSON.stringify(legacySummary))
+  check(JSON.stringify(listedLegacy.body).length < 200000, 'reports list payload bounded with legacy stubs', String(JSON.stringify(listedLegacy.body).length))
+  const legacyView = await api('GET', `/api/reports/${legacyId}`, undefined, { workspaceId })
+  check(legacyView.status === 200 && legacyView.body.trimmed === true, 'legacy report detail trimmed on demand', JSON.stringify({ status: legacyView.status, trimmed: legacyView.body.trimmed }))
+  check(JSON.stringify(legacyView.body.report ?? {}).length < 200000, 'trimmed detail payload bounded', String(JSON.stringify(legacyView.body.report ?? {}).length))
+
+  // 4) 迁移旧报告:压缩正文 + 补侧车索引
+  const migrated = await api('POST', '/api/reports/migrate-legacy', { workspaceId })
+  check(migrated.status === 200 && migrated.body.ok && migrated.body.trimmed >= 1, 'migrate legacy reports', JSON.stringify(migrated.body))
+  const legacyStatAfter = await stat(join(reportsRoot, 'reports', `${legacyId}.json`))
+  check(legacyStatAfter.size < 200000, 'legacy report body shrinks after migration', String(legacyStatAfter.size))
+  const listedAfterMigrate = await api('GET', '/api/reports', undefined, { workspaceId })
+  const migratedSummary = listedAfterMigrate.body.reports.find((r) => r.id === legacyId)
+  check(migratedSummary?.legacy !== true && migratedSummary?.name === '旧大报告', 'migrated report gains proper index', JSON.stringify(migratedSummary))
+}
 
 // ── 5. 用例绑定请求执行(阶段 1:用例↔API 闭环) ──────────────────────────
 console.log('\n=== 用例执行(步骤绑定请求) ===')
