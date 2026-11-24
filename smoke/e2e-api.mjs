@@ -78,6 +78,15 @@ const mock = createServer((req, res) => {
     })
     return
   }
+  if (req.url.startsWith('/api/echo')) {
+    req.on('data', () => {})
+    req.on('end', () => {
+      const parsed = new URL(req.url, 'http://localhost')
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ code: 0, query: Object.fromEntries(parsed.searchParams) }))
+    })
+    return
+  }
   if (req.url === '/api/me') {
     req.on('data', () => {})
     req.on('end', () => {
@@ -1155,6 +1164,25 @@ const assetId = assetCreate.body.asset.id
 const assetRun = await api('POST', '/api/assets/run', { workspaceId, assetId })
 check(assetRun.status === 200 && assetRun.body.result.pass === true, 'run api asset passes', JSON.stringify(assetRun.body.result))
 check(assetRun.body.asset.status === 'solid' && assetRun.body.asset.stats?.passed === 1, 'asset solid after first pass', JSON.stringify({ status: assetRun.body.asset.status, stats: assetRun.body.asset.stats }))
+const freshAsset = await api('GET', `/api/assets/${assetId}`, undefined, { workspaceId })
+check(freshAsset.body.asset?.stale !== true && freshAsset.body.asset?.status === 'solid', 'freshly passed asset is not stale', JSON.stringify({ stale: freshAsset.body.asset?.stale, updatedAt: freshAsset.body.asset?.updatedAt, passedAt: freshAsset.body.asset?.lastPassed?.at }))
+
+// extract 变量在用例资产间传递(不要求 export:true)
+const extractAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '资产测试', name: '提取令牌', baseUrl,
+  request: { method: 'POST', url: '/api/login', headers: { 'content-type': 'application/json' }, body: '{}', assertions: [{ type: 'status', operator: 'eq', expected: 200 }], extract: [{ name: 'TOKEN', path: '$.token' }] },
+})
+const useAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '资产测试', name: '使用令牌', baseUrl,
+  request: { method: 'GET', url: '/api/echo?token={{TOKEN}}', assertions: [{ type: 'json', path: '$.query.token', operator: 'eq', expected: 'tok-123' }] },
+})
+const extractCase = await api('POST', '/api/cases', {
+  workspaceId, name: '令牌链路', module: '资产测试', tags: ['冒烟'],
+  assets: [{ assetId: extractAsset.body.asset.id }, { assetId: useAsset.body.asset.id }],
+})
+check(extractCase.status === 200 && extractCase.body.ok, 'create case with asset chain', JSON.stringify(extractCase.body.message))
+const extractRun = await api('POST', `/api/cases/${extractCase.body.case.id}/run`, { workspaceId })
+check(extractRun.status === 200 && extractRun.body.result?.summary?.passed === 2, 'case assets propagate extract variables (no export required)', JSON.stringify(extractRun.body.result?.results?.map((item) => [item.name, item.pass, item.error])))
 
 // 失败 → failed
 const failingAsset = await api('POST', '/api/assets', { workspaceId, kind: 'api', module: '资产测试', name: '错误接口', baseUrl, request: { method: 'GET', url: '/api/error', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] } })
