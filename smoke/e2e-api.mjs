@@ -371,7 +371,8 @@ const reports = await api('GET', '/api/reports', undefined, { workspaceId })
 check(reports.status === 200 && reports.body.reports.some((r) => r.id === reportId), 'list reports', JSON.stringify(reports.body))
 
 const reportDetail = await api('GET', `/api/reports/${reportId}`, undefined, { workspaceId })
-check(reportDetail.status === 200 && reportDetail.body.report.results.length === 2, 'report detail', JSON.stringify(reportDetail.body))
+check(reportDetail.status === 200 && reportDetail.body.report.summary?.total === 2, 'report detail summary', JSON.stringify(reportDetail.body.report?.summary))
+check(reportDetail.body.report.results === undefined && Array.isArray(reportDetail.body.report.failedEntries), 'report detail stores no process detail (statistics only)', JSON.stringify(Object.keys(reportDetail.body.report ?? {})))
 
 // ── 4.3 报告对比 / 统计(一期/二期) ───────────────────────────────────────
 console.log('\n=== 报告对比与统计 ===')
@@ -387,7 +388,7 @@ check(typeof compareRes.body.diff?.failedDelta === 'number' && Array.isArray(com
 const ifaceStats = await api('GET', '/api/stats/interfaces', undefined, { workspaceId })
 check(ifaceStats.status === 200 && ifaceStats.body.ok, 'stats interfaces ok', JSON.stringify(ifaceStats.body))
 const loginIface = ifaceStats.body.interfaces.find((i) => i.url.includes('/api/login'))
-check(loginIface?.total >= 3 && loginIface?.successRate === 100, 'interface aggregated (login total/rate)', JSON.stringify(loginIface))
+check(loginIface?.total >= 1 && loginIface?.successRate === 100, 'interface aggregated from request history (login total/rate)', JSON.stringify(loginIface))
 check(loginIface?.avgDurationMs >= 0 && loginIface?.lastPass === true, 'interface avg duration and last result', JSON.stringify(loginIface))
 
 // 失败聚合 Top:之前有失败请求(/api/error),应出现在失败接口 Top
@@ -423,36 +424,40 @@ const exportRes = await (async () => {
 })()
 check(exportRes.s === 200, 'export markdown status 200', String(exportRes.s))
 check(typeof exportRes.body === 'string' && exportRes.body.startsWith('# '), 'export returns markdown', String(exportRes.body).slice(0, 80))
-check(exportRes.body.includes('| # | 名称 |'), 'export has table header', '')
+check(exportRes.body.includes('- 通过率:'), 'export contains pass rate line', '')
 check(exportRes.body.includes('认证'), 'export contains collection name', '')
 
-// ── 4.6 报告体积治理(截断写入 + 侧车索引 + 旧报告裁剪) ──────────────────
+// ── 4.6 报告体积治理(只存统计 + 失败项;旧报告按需压缩) ──────────────────
 console.log('\n=== 报告体积治理 ===')
 {
-  const { trimReport, saveReport } = await import('../lib/reports.js')
+  const { compactReport, saveReport } = await import('../lib/reports.js')
   const reportsRoot = join(workspacePath, 'test-mode')
   const huge = Array.from({ length: 50000 }, (_, i) => ({ id: i, name: `row-${i}`, sqlText: 'SELECT '.repeat(20) }))
 
-  // 1) 写入截断:超大断言 actual 压缩为预览(否则单份报告可达数百 MB)
+  // 1) 存储格式:结果只保留统计 + 失败项,过程明细(断言/响应体)一律丢弃
   const synthetic = {
     id: 'report-synthetic-big', kind: 'collection', name: '大报告', createdAt: new Date().toISOString(),
-    durationMs: 1, summary: { total: 1, passed: 1, failed: 0 },
-    results: [{ name: '列表', method: 'POST', url: '/list', pass: true, status: 200, assertions: [{ pass: true, actual: huge, expected: 'x' }] }],
+    durationMs: 1, summary: { total: 2, passed: 1, failed: 1 },
+    results: [
+      { name: '列表', method: 'POST', url: '/list', pass: true, status: 200, assertions: [{ pass: true, actual: huge, expected: 'x' }] },
+      { name: '详情', method: 'GET', url: '/detail', pass: false, status: 500, error: 'boom', assertions: [{ pass: false, type: 'status', expected: 200, actual: huge }] },
+    ],
   }
-  const trimmed = trimReport(synthetic)
-  check(JSON.stringify(trimmed).length < 20000, 'trimReport compresses huge assertion actual', String(JSON.stringify(trimmed).length))
-  check(trimmed.results[0].assertions[0].actual?.truncated === true, 'trimReport marks truncated value', JSON.stringify(trimmed.results[0].assertions[0].actual).slice(0, 120))
+  const stored = compactReport(synthetic)
+  check(stored.results === undefined && !('entriesSnapshot' in stored), 'compactReport drops process detail', JSON.stringify(Object.keys(stored)))
+  check(stored.failedEntries?.length === 1 && stored.failedEntries[0].label === '详情', 'compactReport keeps failure entries', JSON.stringify(stored.failedEntries))
+  check(JSON.stringify(stored).length < 5000, 'compactReport body is tiny even with huge actuals', String(JSON.stringify(stored).length))
   await saveReport(reportsRoot, synthetic)
   const syntheticStat = await stat(join(reportsRoot, 'reports', 'report-synthetic-big.json'))
-  check(syntheticStat.size < 50000, 'report body on disk stays small', String(syntheticStat.size))
+  check(syntheticStat.size < 10000, 'report body on disk stays tiny', String(syntheticStat.size))
 
-  // 2) 列表只读侧车:不返回完整 results
+  // 2) 列表:摘要即可,不含明细
   const listed = await api('GET', '/api/reports', undefined, { workspaceId })
   const savedSummary = listed.body.reports.find((r) => r.id === 'report-synthetic-big')
-  check(savedSummary !== undefined && savedSummary.results === undefined, 'report list returns summaries without full results', JSON.stringify(Object.keys(savedSummary ?? {})))
-  check(savedSummary?.summary?.total === 1, 'report summary survives sidecar index', JSON.stringify(savedSummary?.summary))
+  check(savedSummary !== undefined && savedSummary.results === undefined, 'report list returns summaries', JSON.stringify(Object.keys(savedSummary ?? {})))
+  check(savedSummary?.summary?.failed === 1 && savedSummary?.failedCount === 1, 'report summary and failed count exposed', JSON.stringify(savedSummary))
 
-  // 3) 旧报告(无侧车):列表给 stub 不解析正文;单份详情按需裁剪
+  // 3) 旧报告(旧格式、体积大):列表给 stub 不解析正文;单份详情按需压缩
   const legacyId = 'report-legacy-huge'
   const legacyBody = {
     id: legacyId, kind: 'collection', name: '旧大报告', createdAt: new Date().toISOString(),
@@ -465,17 +470,17 @@ console.log('\n=== 报告体积治理 ===')
   check(legacySummary?.legacy === true && String(legacySummary?.name ?? '').includes('旧报告'), 'legacy report listed as stub without parsing body', JSON.stringify(legacySummary))
   check(JSON.stringify(listedLegacy.body).length < 200000, 'reports list payload bounded with legacy stubs', String(JSON.stringify(listedLegacy.body).length))
   const legacyView = await api('GET', `/api/reports/${legacyId}`, undefined, { workspaceId })
-  check(legacyView.status === 200 && legacyView.body.trimmed === true, 'legacy report detail trimmed on demand', JSON.stringify({ status: legacyView.status, trimmed: legacyView.body.trimmed }))
-  check(JSON.stringify(legacyView.body.report ?? {}).length < 200000, 'trimmed detail payload bounded', String(JSON.stringify(legacyView.body.report ?? {}).length))
+  check(legacyView.status === 200 && legacyView.body.trimmed === true, 'legacy report detail compacted on demand', JSON.stringify({ status: legacyView.status, trimmed: legacyView.body.trimmed }))
+  check(legacyView.body.report.results === undefined && JSON.stringify(legacyView.body.report).length < 200000, 'compacted detail payload bounded', String(JSON.stringify(legacyView.body.report ?? {}).length))
 
-  // 4) 迁移旧报告:压缩正文 + 补侧车索引
+  // 4) 整理旧报告:压缩正文 + 回收空间
   const migrated = await api('POST', '/api/reports/migrate-legacy', { workspaceId })
   check(migrated.status === 200 && migrated.body.ok && migrated.body.trimmed >= 1, 'migrate legacy reports', JSON.stringify(migrated.body))
   const legacyStatAfter = await stat(join(reportsRoot, 'reports', `${legacyId}.json`))
-  check(legacyStatAfter.size < 200000, 'legacy report body shrinks after migration', String(legacyStatAfter.size))
+  check(legacyStatAfter.size < 10000, 'legacy report body shrinks after migration', String(legacyStatAfter.size))
   const listedAfterMigrate = await api('GET', '/api/reports', undefined, { workspaceId })
   const migratedSummary = listedAfterMigrate.body.reports.find((r) => r.id === legacyId)
-  check(migratedSummary?.legacy !== true && migratedSummary?.name === '旧大报告', 'migrated report gains proper index', JSON.stringify(migratedSummary))
+  check(migratedSummary?.legacy !== true && migratedSummary?.name === '旧大报告', 'migrated report gains proper summary', JSON.stringify(migratedSummary))
 }
 
 // ── 5. 用例绑定请求执行(阶段 1:用例↔API 闭环) ──────────────────────────
@@ -657,7 +662,7 @@ const incPlanId = incPlan.body.plan.id
 const incRun = await api('POST', '/api/run-plan', { workspaceId, planId: incPlanId })
 check(incRun.status === 200 && incRun.body.ok, 'run incremental plan', JSON.stringify(incRun.body))
 const incReport = incRun.body.report
-check(incReport.entriesSnapshot?.length === 2, 'plan report stores expanded entries snapshot', JSON.stringify(incReport.entriesSnapshot))
+check(incReport.entriesSnapshot === undefined && Array.isArray(incReport.failedEntries), 'plan report stores statistics only (no entries snapshot)', JSON.stringify(incReport.failedEntries))
 check(incReport.results?.some((r) => r.caseId === 'inc-cover'), 'plan report results carry case identity', JSON.stringify(incReport.results?.map((r) => r.caseId)))
 
 // 自动基线:since 缺省 = 最近一次计划执行时间(此后无变更 → 空展开)
@@ -724,14 +729,12 @@ check(retryEmpty.status === 400 && retryEmpty.body.message.includes('没有失�
 // ── 7. 历史详情(完整请求/响应回看) ──────────────────────────────────────
 console.log('\n=== 历史详情 ===')
 const historyAfter = await api('GET', '/api/history', undefined, { workspaceId })
-const requestHistory = historyAfter.body.history.find((h) => h.kind === 'request' && h.detail)
-check(requestHistory !== undefined, 'request history carries detail', JSON.stringify(historyAfter.body.history.length))
+const requestHistory = historyAfter.body.history.find((h) => h.kind === 'request')
+check(requestHistory !== undefined && requestHistory.detail === undefined, 'request history stores result only (no process detail)', JSON.stringify(requestHistory))
 if (requestHistory) {
   const historyDetail = await api('GET', `/api/history/${requestHistory.id}`, undefined, { workspaceId })
-  // 最近一条 request 历史是「默认环境回退」:URL 应已用默认环境变量替换
-  check(historyDetail.status === 200 && historyDetail.body.entry.detail?.request?.url?.includes('u=alice'), 'history detail returns resolved request url (default env)', JSON.stringify(historyDetail.body))
-  check(historyDetail.body.entry.detail?.response?.status === 404, 'history detail returns response status', JSON.stringify(historyDetail.body.entry.detail))
-  // 登录请求的历史也应存在(显式指定环境)
+  check(historyDetail.status === 200 && historyDetail.body.entry.detail === undefined, 'history detail returns result without process detail', JSON.stringify(Object.keys(historyDetail.body.entry ?? {})))
+  check(typeof historyDetail.body.entry?.url === 'string' && typeof historyDetail.body.entry?.pass === 'boolean', 'history entry keeps resolved url and result', JSON.stringify(historyDetail.body.entry))
   const loginHistory = historyAfter.body.history.find((h) => h.kind === 'request' && h.url?.includes('/api/login'))
   check(loginHistory !== undefined, 'login request history exists', JSON.stringify(historyAfter.body.history.map((h) => h.url)))
 }
@@ -934,8 +937,8 @@ const uiFailScript = await api('POST', '/api/ui/scripts', { workspaceId, name: '
 const uiFailRun = await api('POST', '/api/ui/run', { workspaceId, scriptId: uiFailScript.body.script.id })
 check(uiFailRun.status === 200 && uiFailRun.body.report.summary?.failed === 1, 'ui assertion failure reported', JSON.stringify(uiFailRun.body.report.summary))
 const uiFailStep = uiFailRun.body.report.results?.[1]
-check(typeof uiFailStep?.error === 'string' && uiFailStep.error.includes('expected text'), 'ui failure carries assertion detail', JSON.stringify(uiFailStep))
-check(typeof uiFailStep?.screenshot === 'string' && uiFailStep.screenshot.includes('ui/screenshots/fail-'), 'ui failure captures screenshot', JSON.stringify(uiFailStep?.screenshot))
+check(typeof uiFailStep?.error === 'string' && uiFailStep.error.includes('expected text'), 'ui failure carries assertion detail in response', JSON.stringify(uiFailStep))
+check(uiFailRun.body.report.failedEntries?.[0]?.error?.includes('expected text'), 'ui failure recorded as failed entry (statistics only)', JSON.stringify(uiFailRun.body.report.failedEntries))
 
 // 页面元素探测(POST /api/ui/probe):AI 生成元素库/脚本用,不再依赖会话浏览器工具
 const uiProbe = await api('POST', '/api/ui/probe', { url: uiPage })

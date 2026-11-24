@@ -81,9 +81,9 @@ const DATASETS = {
   '/api/dbdata': { ok: true, tables: [{ name: 'users', format: 'csv', columns: ['id', 'name'], rowCount: 2, sample: [['1', 'alice'], ['2', 'bob']] }], schemaText: '# users 表\n' },
   '/api/datafactory': { ok: true, generators: [{ id: 'g1', key: 'username', name: '用户名', pattern: 'user_{{rand.number:100:999}}', builtin: false }, { id: 'g2', key: 'phone', name: '手机号', pattern: '{{rand.phone}}', builtin: true }] },
   '/api/reports': { ok: true, reports: [
-    { id: 'rep1', name: '回归报告', kind: 'collection', summary: { total: 2, passed: 2, failed: 0 }, durationMs: 12, createdAt: '2026-01-01T00:00:00Z', results: [] },
-    { id: 'rep2', name: '回归报告', kind: 'collection', summary: { total: 2, passed: 1, failed: 1 }, durationMs: 20, createdAt: '2026-01-02T00:00:00Z', results: [
-      { id: 'r1', name: '获取用户', method: 'GET', url: 'http://x/api/me', pass: false, status: 500, durationMs: 12, assertions: [{ type: 'status', operator: 'eq', expected: 200, pass: false }] },
+    { id: 'rep1', name: '回归报告', kind: 'collection', summary: { total: 2, passed: 2, failed: 0 }, durationMs: 12, createdAt: '2026-01-01T00:00:00Z', failedEntries: [] },
+    { id: 'rep2', name: '回归报告', kind: 'collection', summary: { total: 2, passed: 1, failed: 1 }, durationMs: 20, createdAt: '2026-01-02T00:00:00Z', failedEntries: [
+      { kind: 'request', label: '获取用户', method: 'GET', url: 'http://x/api/me', status: 500, error: 'boom2' },
     ] },
   ] },
   '/api/changelogs': { ok: true, changelogs: [
