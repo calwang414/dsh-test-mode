@@ -291,6 +291,18 @@ check(runRequest.status === 200 && runRequest.body.ok, 'run-request ok', JSON.st
 check(runRequest.body.result.ok === true, 'request assertions pass', JSON.stringify(runRequest.body.result.assertions))
 check(runRequest.body.result.extracted?.TOKEN === 'tok-123', 'extract variable', JSON.stringify(runRequest.body.result.extracted))
 
+// 通过的接口:不保存测试数据(不写历史),只更新接口状态与累计计数,并把通过时的请求模板存入接口配置。
+const historyAfterPass = await api('GET', '/api/history', undefined, { workspaceId })
+check(!historyAfterPass.body.history.some((h) => h.kind === 'request' && h.url?.includes('/api/login')), 'passing request not recorded in history', JSON.stringify(historyAfterPass.body.history.map((h) => h.url)))
+const projectsAfterPass = await api('GET', '/api/projects', undefined, { workspaceId })
+const loginRequestConfig = projectsAfterPass.body.projects
+  .find((project) => project.id === projectId)?.collections
+  ?.find((collection) => (collection.id ?? collection.name) === 'col-auth')?.requests
+  ?.find((request) => request.id === 'req-login')
+check(loginRequestConfig?.lastRun?.pass === true && loginRequestConfig?.stats?.passed >= 1, 'passing run updates interface status and counters', JSON.stringify(loginRequestConfig?.lastRun))
+check(loginRequestConfig?.lastPassed?.request?.url === '/api/login' && loginRequestConfig?.lastPassed?.request?.method === 'POST', 'passing run stores request template in interface config', JSON.stringify(loginRequestConfig?.lastPassed?.request))
+check(loginRequestConfig?.lastPassed?.request?.body === '{"user":"{{USER}}"}' && JSON.stringify(loginRequestConfig?.lastPassed?.request?.headers) === JSON.stringify({ 'content-type': 'application/json' }), 'lastPassed keeps raw template fields', JSON.stringify(loginRequestConfig?.lastPassed?.request))
+
 // 失败路径:请求一个 500 的接口
 const runFail = await api('POST', '/api/run-request', {
   workspaceId,
@@ -735,8 +747,8 @@ if (requestHistory) {
   const historyDetail = await api('GET', `/api/history/${requestHistory.id}`, undefined, { workspaceId })
   check(historyDetail.status === 200 && historyDetail.body.entry.detail === undefined, 'history detail returns result without process detail', JSON.stringify(Object.keys(historyDetail.body.entry ?? {})))
   check(typeof historyDetail.body.entry?.url === 'string' && typeof historyDetail.body.entry?.pass === 'boolean', 'history entry keeps resolved url and result', JSON.stringify(historyDetail.body.entry))
-  const loginHistory = historyAfter.body.history.find((h) => h.kind === 'request' && h.url?.includes('/api/login'))
-  check(loginHistory !== undefined, 'login request history exists', JSON.stringify(historyAfter.body.history.map((h) => h.url)))
+  const requestHistoryEntries = historyAfter.body.history.filter((h) => h.kind === 'request')
+  check(requestHistoryEntries.length > 0 && requestHistoryEntries.every((h) => h.pass === false), 'history records failed requests only', JSON.stringify(requestHistoryEntries.map((h) => [h.url, h.pass])))
 }
 
 // ── 7.5 旧数据兼容:集合/请求无 id 时自动补齐(用户真实数据即无 id) ─────

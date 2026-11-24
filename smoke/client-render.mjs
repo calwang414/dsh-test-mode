@@ -64,7 +64,12 @@ const DATASETS = {
     projects: [{
       id: 'p1', name: '订单服务', baseUrl: 'http://127.0.0.1:9999',
       collections: [
-        { id: 'col1', name: '订单接口', requests: [{ id: 'r1', name: '创建订单', method: 'POST', url: '/orders', headers: { 'content-type': 'application/json', 'x-trace': 'abc' }, query: { page: '1' }, body: '', assertions: [], extract: [] }] },
+        { id: 'col1', name: '订单接口', requests: [{
+          id: 'r1', name: '创建订单', method: 'POST', url: '/orders', headers: { 'content-type': 'application/json', 'x-trace': 'abc' }, query: { page: '1' }, body: '', assertions: [], extract: [],
+          lastRun: { pass: true, status: 200, at: '2026-01-04T00:00:00Z' },
+          stats: { runs: 3, passed: 3, failed: 0, totalDurationMs: 30 },
+          lastPassed: { at: '2026-01-04T00:00:00Z', status: 200, request: { name: '创建订单', method: 'POST', url: '/orders-passed', headers: { 'content-type': 'application/json' }, query: { page: '1' }, body: '' } },
+        }] },
         // 旧数据:集合/请求无 id,前端应用 name 兜底;headers 数组格式(旧客户端产物)也能打开
         { name: '无ID集合', requests: [{ name: '无ID请求', method: 'GET', url: '/x', headers: [{ key: 'x-old', value: '1' }], query: [], body: '', assertions: [], extract: [] }] },
       ],
@@ -463,6 +468,26 @@ for (const item of cases) {
   phoneBtn.click()
   await sleep(20)
   check(rootEl.textContent.includes('{{rand.phone}}'), 'API 编辑器 点击内置生成器插入 token', '')
+}
+
+// 接口状态与「通过数据」复用:请求树显示已通过,详情可一键填回通过时的请求数据
+{
+  const rootEl = await renderComponentTab('接口')
+  await sleep(20)
+  const rowByText = (text) => [...rootEl.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(text))
+  rowByText('订单服务').click()
+  await sleep(20)
+  rowByText('订单接口').click()
+  await sleep(20)
+  check(rootEl.textContent.includes('已通过'), '接口树显示接口状态(已通过)', '')
+  rowByText('创建订单').click()
+  await sleep(20)
+  check(rootEl.textContent.includes('使用上次通过的数据'), '请求详情提供「使用上次通过的数据」', '')
+  const useBtn = [...rootEl.querySelectorAll('button')].find((b) => b.textContent.trim() === '使用上次通过的数据')
+  useBtn.click()
+  await sleep(30)
+  const urlInput = [...rootEl.querySelectorAll('input')].find((i) => i.value === '/orders-passed')
+  check(urlInput !== undefined, '点击后把通过时的请求数据填回编辑器', [...rootEl.querySelectorAll('input')].map((i) => i.value).join('|').slice(0, 160))
 }
 
 // 数据工厂(已合并进「基础配置」作为子标签):小卡片网格 + 点击弹窗详情(编辑/删除在弹窗内,内置只读)
