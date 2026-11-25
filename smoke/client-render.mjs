@@ -100,6 +100,7 @@ const state = {
   cases: [
     { id: 'case-login', name: '登录用例', module: '登录', tags: ['冒烟'], type: 'functional', priority: 'high', requirement: 'REQ-登录-001', automation: 'auto', result: 'not_run', defects: ['#473'], assets: [{ assetId: 'api:login' }] },
     { id: 'case-e2e', name: '下单e2e', module: '订单', tags: [], type: 'e2e', priority: 'medium', requirement: 'REQ-下单-002', automation: 'partial', result: 'not_run', defects: [], assets: [] },
+    { id: 'case-fail', name: '支付失败工作项', module: '支付', tags: [], type: 'functional', priority: 'low', requirement: 'REQ-支付-003', automation: 'manual', result: 'failed', defects: ['#474'], assets: [] },
   ],
   versions: [],
   pending: { total: 2, pending: 1, untested: 1, failed: 0, stale: 0, solid: 1 },
@@ -384,8 +385,24 @@ console.log('\n=== 测试工作项 ===')
   check(card() !== undefined, '工作项以紧凑卡片展示', '')
   check(rootEl.textContent.includes('优先级 高') && rootEl.textContent.includes('结果:未执行') && rootEl.textContent.includes('#473'), '紧凑卡片显示标题/优先级/结果/关联缺陷', rootEl.textContent.slice(0, 240))
   check(rootEl.textContent.includes('需求: REQ-登录-001'), '紧凑卡片显示需求摘要', rootEl.textContent.slice(0, 240))
-  check(findButton(rootEl, '执行') === undefined, '紧凑卡片默认不显示操作按钮', '')
+  check([...rootEl.querySelectorAll('button')].every((button) => button.textContent.trim() !== '执行'), '紧凑卡片默认不显示操作按钮', '')
   check(!rootEl.textContent.includes('下单e2e'), '其它类型的工作项不在当前 tab 显示', '')
+  // 快速筛选:结果 / 优先级
+  const chip = (group, value) => [...rootEl.querySelectorAll(`[data-filter-group="${group}"]`)].find((el) => el.getAttribute('data-filter-value') === value)
+  check(chip('result', 'failed') !== undefined && chip('priority', 'high') !== undefined, '筛选栏有结果/优先级快捷按钮', '')
+  check(rootEl.textContent.includes('支付失败工作项'), '功能测试下显示全部工作项', '')
+  chip('result', 'failed').click()
+  await sleep(30)
+  check(rootEl.textContent.includes('支付失败工作项') && !rootEl.textContent.includes('登录用例'), '按执行结果筛选(失败)', rootEl.textContent.slice(0, 200))
+  check(rootEl.textContent.includes('筛选出 1 项'), '筛选后显示命中数量', '')
+  chip('result', '').click()
+  await sleep(30)
+  chip('priority', 'high').click()
+  await sleep(30)
+  check(rootEl.textContent.includes('登录用例') && !rootEl.textContent.includes('支付失败工作项'), '按优先级筛选(高)', rootEl.textContent.slice(0, 200))
+  chip('priority', '').click()
+  await sleep(30)
+  check(rootEl.textContent.includes('登录用例') && rootEl.textContent.includes('支付失败工作项'), '清空筛选恢复全部', '')
   const e2eTab = findButton(rootEl, 'e2e测试')
   if (e2eTab) {
     e2eTab.click()
@@ -399,7 +416,7 @@ console.log('\n=== 测试工作项 ===')
   await sleep(30)
   check(rootEl.textContent.includes('关联需求:') && rootEl.textContent.includes('关联缺陷:') && rootEl.textContent.includes('自动化状态:'), '点击卡片展开详情', rootEl.textContent.slice(0, 300))
   check(rootEl.textContent.includes('1 个资产'), '展开后显示资产组合', '')
-  const runButton = findButton(rootEl, '执行')
+  const runButton = [...rootEl.querySelectorAll('button')].find((button) => button.textContent.trim() === '执行')
   check(runButton !== undefined, '展开后显示执行/编辑/删除按钮', '')
   if (runButton) {
     runButton.click()
