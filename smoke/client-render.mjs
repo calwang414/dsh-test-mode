@@ -97,7 +97,10 @@ const state = {
       status: 'untested',
     },
   ],
-  cases: [{ id: 'case-login', name: '登录用例', module: '登录', tags: ['冒烟'], assets: [{ assetId: 'api:login' }] }],
+  cases: [
+    { id: 'case-login', name: '登录用例', module: '登录', tags: ['冒烟'], type: 'functional', priority: 'high', requirement: 'REQ-登录-001', automation: 'auto', result: 'not_run', defects: ['#473'], assets: [{ assetId: 'api:login' }] },
+    { id: 'case-e2e', name: '下单e2e', module: '订单', tags: [], type: 'e2e', priority: 'medium', requirement: 'REQ-下单-002', automation: 'partial', result: 'not_run', defects: [], assets: [] },
+  ],
   versions: [],
   pending: { total: 2, pending: 1, untested: 1, failed: 0, stale: 0, solid: 1 },
   calls: [],
@@ -370,19 +373,36 @@ console.log('\n=== 资产库 ===')
   check(createButton !== undefined, '资产库有新建入口', '')
 }
 
-// ── 3. 用例 ─────────────────────────────────────────────────────────────
-console.log('\n=== 用例 ===')
+// ── 3. 测试工作项(功能/e2e/性能/安全) ────────────────────────────────────
+console.log('\n=== 测试工作项 ===')
 {
   const rootEl = await renderView('dsh-test-mode-cases')
-  check(rootEl.textContent.includes('登录用例') && rootEl.textContent.includes('1 个资产'), '用例显示资产组合数量', rootEl.textContent.slice(0, 160))
+  check(rootEl.textContent.includes('测试工作项'), '工作项视图标题', rootEl.textContent.slice(0, 120))
+  check(['功能测试', 'e2e测试', '性能测试', '安全测试'].every((label) => findButton(rootEl, label) !== undefined), '工作项包含四类测试 tab', '')
+  check(rootEl.textContent.includes('登录用例') && rootEl.textContent.includes('1 个资产'), '功能测试下显示工作项与资产数量', rootEl.textContent.slice(0, 200))
+  check(rootEl.textContent.includes('优先级 高') && rootEl.textContent.includes('自动化:自动化') && rootEl.textContent.includes('结果:未执行'), '工作项显示优先级/自动化状态/结果', rootEl.textContent.slice(0, 240))
+  check(rootEl.textContent.includes('关联需求: REQ-登录-001') && rootEl.textContent.includes('#473'), '工作项显示关联需求与关联缺陷', rootEl.textContent.slice(0, 260))
+  check(!rootEl.textContent.includes('下单e2e'), '其它类型的工作项不在当前 tab 显示', '')
+  const e2eTab = findButton(rootEl, 'e2e测试')
+  if (e2eTab) {
+    e2eTab.click()
+    await sleep(30)
+    check(rootEl.textContent.includes('下单e2e') && !rootEl.textContent.includes('登录用例'), '切换 e2e 测试 tab 只显示 e2e 工作项', rootEl.textContent.slice(0, 200))
+  }
+  const funcTab = findButton(rootEl, '功能测试')
+  if (funcTab) { funcTab.click(); await sleep(30) }
   const runButton = findButton(rootEl, '执行')
-  check(runButton !== undefined, '用例卡片有执行按钮', '')
+  check(runButton !== undefined, '工作项有执行按钮', '')
   if (runButton) {
     runButton.click()
     await sleep(60)
-    check(rootEl.textContent.includes('用例执行') && rootEl.textContent.includes('1/1 通过'), '执行用例显示通过结果', rootEl.textContent.slice(-200))
+    check(rootEl.textContent.includes('工作项执行') && rootEl.textContent.includes('1/1 通过'), '执行工作项显示通过结果', rootEl.textContent.slice(-200))
   }
-  check(findButton(rootEl, '+ 新建用例') !== undefined, '用例页有新建入口', '')
+  check(findButton(rootEl, '+ 新建工作项') !== undefined, '工作项页有新建入口', '')
+  findButton(rootEl, '+ 新建工作项')?.click()
+  await sleep(30)
+  check(rootEl.textContent.includes('新建工作项') && rootEl.textContent.includes('关联需求'), '新建工作项编辑器含标题/需求字段', rootEl.textContent.slice(0, 200))
+  check(rootEl.textContent.includes('关联缺陷') && rootEl.textContent.includes('自动化状态'), '新建工作项编辑器含自动化状态/关联缺陷', '')
 }
 
 // ── 4. 版本 ─────────────────────────────────────────────────────────────

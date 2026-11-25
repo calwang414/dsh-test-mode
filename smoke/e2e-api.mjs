@@ -517,6 +517,24 @@ const boundCase = await api('PUT', `/api/cases/${caseId}`, {
 })
 check(boundCase.status === 200 && boundCase.body.ok, 'bind requestRef to case steps', JSON.stringify(boundCase.body))
 
+// 测试工作项字段:类型/优先级/关联需求/自动化状态/结果/关联缺陷
+const workItemUpdate = await api('PUT', `/api/cases/${caseId}`, {
+  workspaceId, type: 'e2e', priority: 'high', requirement: 'REQ-登录-001',
+  automation: 'auto', result: 'not_run', defects: ['#473', 'https://github.com/calwang414/go-vue3/issues/474'],
+})
+check(workItemUpdate.status === 200 && workItemUpdate.body.case.type === 'e2e' && workItemUpdate.body.case.requirement === 'REQ-登录-001', 'update case work item fields', JSON.stringify(workItemUpdate.body.case?.type))
+const workItemGet = await api('GET', `/api/cases/${caseId}`, undefined, { workspaceId })
+check(workItemGet.body.case?.automation === 'auto' && workItemGet.body.case?.result === 'not_run' && workItemGet.body.case?.defects?.length === 2, 'case returns work item fields', JSON.stringify({ automation: workItemGet.body.case?.automation, defects: workItemGet.body.case?.defects }))
+const badType = await api('PUT', `/api/cases/${caseId}`, { workspaceId, type: 'smoke' })
+check(badType.status === 400 && badType.body.message.includes('invalid type'), 'reject invalid work item type', JSON.stringify(badType.body))
+const badResult = await api('PUT', `/api/cases/${caseId}`, { workspaceId, result: 'ok' })
+check(badResult.status === 400 && badResult.body.message.includes('invalid result'), 'reject invalid work item result', JSON.stringify(badResult.body))
+const badDefects = await api('PUT', `/api/cases/${caseId}`, { workspaceId, defects: [1] })
+check(badDefects.status === 400 && badDefects.body.message.includes('defects[0]'), 'reject invalid defect refs', JSON.stringify(badDefects.body))
+const defaultItem = await api('POST', '/api/cases', { workspaceId, name: '默认工作项' })
+check(defaultItem.body.case?.type === 'functional' && defaultItem.body.case?.automation === 'manual' && defaultItem.body.case?.result === 'not_run', 'new work item defaults', JSON.stringify({ type: defaultItem.body.case?.type, automation: defaultItem.body.case?.automation, result: defaultItem.body.case?.result }))
+await api('DELETE', `/api/cases/${defaultItem.body.case.id}`, undefined, { workspaceId })
+
 const caseRun = await api('POST', `/api/cases/${caseId}/run`, { workspaceId, environmentId: envId })
 check(caseRun.status === 200 && caseRun.body.ok, 'run-case ok', JSON.stringify(caseRun.body))
 const caseReport = caseRun.body.result
@@ -524,6 +542,8 @@ check(caseRun.body.mode === 'legacy', 'legacy case runs in legacy mode', JSON.st
 check(caseReport.summary?.total === 2 && caseReport.summary?.passed === 2, 'case run executed 2 bound steps', JSON.stringify(caseReport.summary))
 check(caseReport.summary?.skipped === 1, 'case run skipped unbound step', JSON.stringify(caseReport.summary))
 check(caseReport.results?.[0]?.url?.includes('/api/login'), 'first step hit login API', JSON.stringify(caseReport.results?.[0]))
+const caseAfterRun = await api('GET', `/api/cases/${caseId}`, undefined, { workspaceId })
+check(caseAfterRun.body.case?.result === 'passed' && typeof caseAfterRun.body.case?.resultAt === 'string', 'case run writes work item result', JSON.stringify({ result: caseAfterRun.body.case?.result }))
 const caseRunReports = await api('GET', '/api/reports', undefined, { workspaceId })
 check(!caseRunReports.body.reports.some((report) => report.kind === 'case'), 'case run saves no report (execution only)', JSON.stringify(caseRunReports.body.reports.map((report) => report.kind)))
 

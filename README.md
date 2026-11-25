@@ -71,7 +71,7 @@ dsh-test-mode/
 
 - **Host 端**(`lib/index.js`):注册 `/dsh-test-mode/api/run` JSON API——接收 `{ name, source, assertions }`,源码求值(vm 沙箱,与 `cordis_define` 的 code.host 同形),在隔离作用域装载、断言、卸载,返回三阶段报告;
 - **测试引擎**(`lib/plugin-test.js`):`ctx.plugin()` 返回的 fiber 提供作用域隔离与卸载;`tools.schemas()` 做基线对比;`ctx.on` 探针验证事件通路;
-- **客户端**(`lib/client.js`):注册测试模式的对话视图标签(React 原生,无 iframe;顶层:基础配置 / 资产库 / 用例 / 版本;资产库内含「接口」「UI 组件」「UI 流程」子标签),跟随当前会话——只有当前会话是测试模式时才注册,切到其他模式立即注销(与 ui-design 同门控);
+- **客户端**(`lib/client.js`):注册测试模式的对话视图标签(React 原生,无 iframe;顶层:基础配置 / 资产库 / 测试工作项 / 版本;资产库内含「接口」「UI 组件」「UI 流程」子标签,测试工作项内含「功能测试」「e2e测试」「性能测试」「安全测试」四个标签页),跟随当前会话——只有当前会话是测试模式时才注册,切到其他模式立即注销(与 ui-design 同门控);
 - **会话行**(`lib/preset.js`):测试模式组合内装载,注册测试工作流提示段 + 自动创建 `test-mode/` 目录。
 
 **断言语义边界**(与仓库 HMR 安全测试对齐):
@@ -90,6 +90,7 @@ dsh-test-mode/
 - **步骤数据覆盖(`data`)**:步骤可写 `data = { url?, body?, query?, headers? }` 覆盖所绑请求的数据(字段可省,未提供的回退请求配置);请求配置中的 mock 数据是**接口测试的参考示例**(API 列表执行时使用),用例步骤 data 覆盖它,且 **data 的字段结构必须对齐参考示例结构**(保存校验校验结构,提示词约束对齐示例);编辑器里 API 绑定步骤有数据覆盖编辑区(URL/Body/Query/Headers);
 - **执行用例**:`POST /api/cases/:id/run` — 按 `assets` 顺序执行资产,变量在资产间流动;通过/失败只更新资产状态与统计,不生成报告;
 - **测试资产**:`assets/api/<id>.json`、`assets/ui/<id>.json`(component/flow);首次执行成功即固化(solid),失败为 failed;配置变更后视为过期,需重跑;待测资产查询 `GET /api/assets/pending`,批量补测 `POST /api/assets/run-batch`;
+- **测试工作项**:`cases/<id>.json`,按 `type` 分功能测试/e2e测试/性能测试/安全测试四类;字段:标题(name)、优先级(priority)、关联需求(requirement)、自动化状态(automation: manual/auto/partial)、结果(result: not_run/passed/failed/blocked/skipped)、关联缺陷(defects 票号/链接数组)、资产组合(assets);
 - **版本报告**:报告只有一种——版本;`POST /api/versions` 保存前校验所有资产已通过且无过期,版本默认保留、由用户手工删除;版本页可发起全量系统测试、对比与删除;
 - **搜索筛选**:用例视图支持关键字(名称/描述/标签)、优先级、状态、标签过滤;`archived` 状态默认折叠,可勾选「显示归档」;
 - **保存校验**:用例/项目/资产的保存做结构校验——字段缺失、枚举非法(priority/status/method/断言类型)、`requestRef`/`uiRef`/资产引用不存在的资源都会被 400 拒绝,报错信息含具体位置(如 `steps[1].requestRef points to a missing resource…`),供智能体按报错修正;
