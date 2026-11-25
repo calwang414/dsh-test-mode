@@ -1470,6 +1470,10 @@ const repCase = await api('POST', '/api/cases', {
   workspaceId, name: '报告统计工作项', type: 'functional', priority: 'high', automation: 'auto', result: 'not_run',
   assets: [{ assetId: repPass.body.asset.id }],
 })
+const repCaseRun = await api('POST', `/api/cases/${repCase.body.case.id}/run`, { workspaceId })
+check(repCaseRun.status === 200 && repCaseRun.body.result?.durationMs >= 0, 'work item run returns duration', JSON.stringify(repCaseRun.body.result?.durationMs))
+const repCaseAfter = await api('GET', `/api/cases/${repCase.body.case.id}`, undefined, { workspaceId })
+check(typeof repCaseAfter.body.case?.lastRun?.durationMs === 'number', 'work item duration persisted', JSON.stringify(repCaseAfter.body.case?.lastRun))
 const latestRefresh = await api('POST', '/api/reports/latest/refresh', { workspaceId })
 const latestReport = latestRefresh.body.report
 check(latestReport?.schemaVersion === 1 && latestReport.coverage.assetsTotal >= 3, 'latest report has coverage stats', JSON.stringify(latestReport?.coverage))
@@ -1479,6 +1483,9 @@ check(failedItem?.assetId === repFail.body.asset.id && typeof failedItem.error =
 const reportWorkItem = latestReport.workItems?.items?.find((item) => item.id === repCase.body.case.id)
 check(reportWorkItem?.name === '报告统计工作项' && reportWorkItem.type === 'functional' && reportWorkItem.assetCount === 1, 'latest report lists work item content', JSON.stringify(reportWorkItem))
 check(reportWorkItem?.assertionCount >= 1 && reportWorkItem?.assets?.[0]?.name === '报告通过资产', 'latest report includes composed asset names/assertion count', JSON.stringify(reportWorkItem?.assets))
+check(latestReport.timing?.lastRunTotalMs > 0 && latestReport.timing?.lastRunAvgMs > 0, 'report timing aggregates last-run duration', JSON.stringify(latestReport.timing))
+check(Array.isArray(latestReport.timing?.slowestAssets) && latestReport.timing.slowestAssets.length >= 1, 'report timing lists slowest assets', JSON.stringify(latestReport.timing?.slowestAssets?.slice(0, 2)))
+check(reportWorkItem?.lastDurationMs >= 0, 'report work item carries last duration', JSON.stringify(reportWorkItem?.lastDurationMs))
 check((latestReport.workItems?.byType ?? []).some((entry) => entry.type === 'functional' && entry.total >= 1), 'latest report summarises work items by type', JSON.stringify(latestReport.workItems?.byType))
 const dimensions = latestReport.dimensions ?? {}
 check(dimensions.breadth?.scopesTotal >= 1 && dimensions.breadth.scopeCoverage > 0, 'report breadth: scope coverage', JSON.stringify(dimensions.breadth))
@@ -1503,6 +1510,7 @@ const historySave = await api('POST', '/api/reports/history', { workspaceId, nam
 check(historySave.status === 200 && historySave.body.report?.status === 'failed' && historySave.body.report?.coverage?.failed >= 1, 'save history report anytime (even with failures)', JSON.stringify(historySave.body.report?.coverage))
 check(historySave.body.report?.workItems?.items?.some((item) => item.id === repCase.body.case.id), 'history report keeps work item content', '')
 check(historySave.body.report?.dimensions?.health?.length === 6, 'history report keeps dimensions', '')
+check(historySave.body.report?.timing?.lastRunTotalMs > 0, 'history report keeps timing', JSON.stringify(historySave.body.report?.timing))
 const historyList = await api('GET', '/api/reports/history', undefined, { workspaceId })
 check(historyList.body.reports.some((item) => item.id === historySave.body.report.id), 'history report listed', JSON.stringify(historyList.body.reports.map((item) => item.name)))
 const historyRead = await api('GET', `/api/reports/history/${historySave.body.report.id}`, undefined, { workspaceId })

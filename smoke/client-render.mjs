@@ -80,6 +80,12 @@ function reportFixture() {
       { type: 'uiFlow', total: 0, passed: 0, failed: 0, stale: 0, untested: 0 },
     ],
     failures: { count: 1, shown: 1, items: [{ assetId: 'api:me', name: '获取用户', module: '用户', error: '500 boom' }] },
+    timing: {
+      totalMs: 12345, lastRunTotalMs: 2345, lastRunAvgMs: 782, lastRunP95Ms: 1500, lastRunMaxMs: 1800,
+      assetsWithDuration: 3, slowestAssets: [{ assetId: 'api:me', name: '获取用户', module: '用户', durationMs: 1800 }],
+      byModule: [{ module: '登录', lastRunMs: 1200, totalMs: 6000 }],
+      byType: [{ type: 'api', lastRunMs: 2345, totalMs: 12345 }],
+    },
     dimensions: {
       breadth: { modulesTotal: 2, scopesTotal: 3, scopesCovered: 2, scopeCoverage: 0.667, typesCovered: 2, typeCoverage: 0.5, requirementLinked: 1, requirementTotal: 3, requirementCoverage: 0.333, tagsUsed: 1, tagLibrarySize: 2, tagCoverage: 0.5 },
       depth: { assertionsTotal: 2, assertionPerAsset: 0.667, assertionPerWorkItem: 0.667, assetsWithNoAssertions: 1, negativeAssets: 0, negativeRatio: 0, e2eWorkItems: 1, avgAssetsPerWorkItem: 0.33, uiFlowAssets: 0, defectsTotal: 1, workItemsWithDefects: 1, defectsPerWorkItem: 0.33, rerunAssets: 1, rerunRatio: 0.33, automationRate: 0.67 },
@@ -107,12 +113,12 @@ function reportFixture() {
       items: [
         {
           id: 'case-1', name: '登录用例', type: 'functional', typeLabel: '功能测试', priority: 'high', result: 'passed',
-          module: '登录', tags: ['冒烟'], requirement: '可登录', defects: [], assetCount: 1, assertionCount: 2,
+          module: '登录', tags: ['冒烟'], requirement: '可登录', defects: [], assetCount: 1, assertionCount: 2, lastDurationMs: 1200,
           assets: [{ id: 'api:login', name: '登录接口', kind: 'api', status: 'solid', stale: false }],
         },
         {
           id: 'case-2', name: '支付失败工作项', type: 'functional', typeLabel: '功能测试', priority: 'high', result: 'failed',
-          module: '订单', tags: [], requirement: '支付失败提示', defects: ['BUG-1'], assetCount: 0, assertionCount: 0, assets: [],
+          module: '订单', tags: [], requirement: '支付失败提示', defects: ['BUG-1'], assetCount: 0, assertionCount: 0, lastDurationMs: 800, assets: [],
         },
         {
           id: 'case-3', name: '下单 e2e', type: 'e2e', typeLabel: 'e2e测试', priority: 'medium', result: 'not_run',
@@ -596,6 +602,8 @@ console.log('\n=== 报告 ===')
   check(rootEl.textContent.includes('资产状态') && rootEl.textContent.includes('按资产类型') && rootEl.textContent.includes('历史趋势'), '报告看板显示图表区', rootEl.textContent.slice(0, 320))
   check(rootEl.textContent.includes('测试健康度') && rootEl.querySelector('polygon') !== null, '报告看板显示健康度雷达图', '')
   check(rootEl.textContent.includes('覆盖广度') && rootEl.textContent.includes('测试深度') && rootEl.textContent.includes('测试质量'), '报告看板显示三维指标卡', rootEl.textContent.slice(0, 420))
+  check(rootEl.textContent.includes('最近总耗时') && rootEl.textContent.includes('平均耗时'), '报告看板显示耗时 KPI', '')
+  check(rootEl.textContent.includes('耗时') && rootEl.textContent.includes('P95'), '报告看板显示耗时卡片', rootEl.textContent.slice(0, 500))
   check(rootEl.textContent.includes('覆盖热力图') && rootEl.textContent.includes('登录/认证'), '报告看板显示模块×类型热力图', rootEl.textContent.slice(0, 420))
   check(rootEl.querySelectorAll('svg').length >= 2, '报告看板渲染环形图/趋势图', String(rootEl.querySelectorAll('svg').length))
   check(rootEl.textContent.includes('测试工作项') && rootEl.textContent.includes('共 3 个'), '报告看板显示测试工作项分布', rootEl.textContent.slice(0, 320))
@@ -604,6 +612,7 @@ console.log('\n=== 报告 ===')
   detailsButton?.click()
   await sleep(30)
   check(rootEl.textContent.includes('登录用例'), '展开后显示工作项明细', '')
+  check(rootEl.textContent.includes('800ms') || rootEl.textContent.includes('1.2s'), '工作项条目显示耗时', '')
   const reportItem = rootEl.querySelector('[data-report-item="case-1"]')
   check(reportItem !== null, '测试工作项行可展开', '')
   if (reportItem) {
