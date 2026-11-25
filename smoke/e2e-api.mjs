@@ -1184,6 +1184,16 @@ check(typeof migratedDry.body.hint === 'string' && migratedDry.body.hint.include
 const assetsDirBefore = await readdir(join(workspacePath, 'test-mode/assets/api')).catch(() => [])
 check(assetsDirBefore.length === 0, 'dry-run writes no asset files', JSON.stringify(assetsDirBefore))
 
+// 旧格式用例带 step.data:迁移必须保留数据覆盖(同一资产两次不同 data 也要按顺序保留)。
+const legacyDataCase = await api('POST', '/api/cases', {
+  workspaceId, name: '旧格式数据覆盖用例',
+  steps: [
+    { action: '登录 A', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' }, data: { body: '{"user":"A-{{USER}}"}' } },
+    { action: '登录 B', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' }, data: { body: '{"user":"B-{{USER}}"}' } },
+  ],
+})
+check(legacyDataCase.status === 200, 'create legacy steps case with data', JSON.stringify(legacyDataCase.body.message))
+
 // 创建一个旧格式用例(steps + requestRef),验证迁移会推导出资产引用。
 const legacyStepsCase = await api('POST', '/api/cases', {
   workspaceId, name: '旧格式步骤用例',
@@ -1215,8 +1225,45 @@ const sumCaseRefs = async () => {
 }
 const legacyAfterMigrate = await api('GET', `/api/cases/${legacyStepsCase.body.case.id}`, undefined, { workspaceId })
 check(legacyAfterMigrate.body.case.assets?.length >= 1, 'legacy steps become asset refs', JSON.stringify(legacyAfterMigrate.body.case.assets))
+const dataAfterMigrate = await api('GET', `/api/cases/${legacyDataCase.body.case.id}`, undefined, { workspaceId })
+const migratedEntries = dataAfterMigrate.body.case.assets ?? []
+check(migratedEntries.length === 2 && migratedEntries[0]?.data?.body === '{"user":"A-{{USER}}"}' && migratedEntries[1]?.data?.body === '{"user":"B-{{USER}}"}', 'migration keeps step.data in order', JSON.stringify(migratedEntries))
+await api('POST', `/api/cases/${legacyDataCase.body.case.id}/run`, { workspaceId, environmentId: envId })
+check(lastLoginBody.includes('B-'), 'migrated case applies step.data at run time', lastLoginBody.slice(0, 120))
 const refsOnDisk = await sumCaseRefs()
 check(refsOnDisk > 0 && refsOnDisk === migrateManifest.counts.caseAssetRefs, 'migration ref counts match disk', `${refsOnDisk} vs ${migrateManifest.counts.caseAssetRefs}`)
+
+// 已迁移但丢掉 data 的存量用例:执行器从 legacy steps 唯一 data 只读回退。
+const fallbackCase = await api('POST', '/api/cases', {
+  workspaceId, name: '存量丢数据用例',
+  steps: [{ action: '登录回退', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' }, data: { body: '{"user":"FALLBACK-{{USER}}"}' } }],
+})
+const migratedLoginAsset = (await api('GET', '/api/assets', undefined, { workspaceId })).body.assets
+  .find((asset) => asset.source?.requestId === 'req-login')
+check(migratedLoginAsset !== undefined, 'find migrated login asset', '')
+await api('PUT', `/api/cases/${fallbackCase.body.case.id}`, {
+  workspaceId, assets: [{ assetId: migratedLoginAsset.id }],
+  steps: [{ action: '登录回退', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' }, data: { body: '{"user":"FALLBACK-{{USER}}"}' } }],
+})
+await api('POST', `/api/cases/${fallbackCase.body.case.id}/run`, { workspaceId, environmentId: envId })
+check(lastLoginBody.includes('FALLBACK-'), 'runtime fallback applies unique legacy step data', lastLoginBody.slice(0, 120))
+// 歧义(同一请求两条不同 data)不回退,避免选错数据。
+const ambiguousCase = await api('POST', '/api/cases', {
+  workspaceId, name: '歧义数据用例',
+  steps: [
+    { action: 'X', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' }, data: { body: '{"user":"X-{{USER}}"}' } },
+    { action: 'Y', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' }, data: { body: '{"user":"Y-{{USER}}"}' } },
+  ],
+})
+await api('PUT', `/api/cases/${ambiguousCase.body.case.id}`, {
+  workspaceId, assets: [{ assetId: migratedLoginAsset.id }],
+  steps: [
+    { action: 'X', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' }, data: { body: '{"user":"X-{{USER}}"}' } },
+    { action: 'Y', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' }, data: { body: '{"user":"Y-{{USER}}"}' } },
+  ],
+})
+await api('POST', `/api/cases/${ambiguousCase.body.case.id}/run`, { workspaceId, environmentId: envId })
+check(!lastLoginBody.includes('X-') && !lastLoginBody.includes('Y-'), 'ambiguous legacy data does not fall back', lastLoginBody.slice(0, 120))
 
 // 已使用新 assets[] 的用例绝不能被迁移清空(本次 bug 的回归测试)。
 const firstMigratedAsset = (await api('GET', '/api/assets', undefined, { workspaceId })).body.assets[0]

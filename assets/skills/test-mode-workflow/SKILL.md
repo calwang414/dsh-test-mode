@@ -142,7 +142,13 @@ description: Detailed reference for test-mode assets and test work items - JSON 
 - API 保存时字段缺失、枚举非法、引用不存在 → 400，按报文位置修正；
 - 工作项/资产 id 以文件名为准，不要自造引用。
 
-## 9. 禁用行为
+## 9. 迁移兼容
+
+- 旧用例迁移会把 `steps[].data` 保留到对应 `assets[].data`（同一资产重复步骤按顺序各保留一条）；
+- 对已经迁移掉 data 的存量用例，执行时只读回退：若 legacy `steps` 中该请求引用的 data 唯一则使用，
+  多条不同 data（歧义）不回退；不修改文件。
+
+## 10. 禁用行为
 
 - 不创建 `plans/`；不写旧 `reports/`；不恢复 `legacy-*/`；
 - 不把 pytest/k6/Postman/其他执行栈引入本插件；外部技能只提供方法；
