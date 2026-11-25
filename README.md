@@ -55,7 +55,7 @@ dsh-test-mode/
 与原版「每个会话一个测试目录」不同,本项目为**工作区级共享**:
 
 - 所有会话(无论哪个 sessionId)的 Test 视图都指向 `<工作区>/test-mode/` 这一个项目;
-- 项目文件直接放在 `test-mode/` 根:assets/(接口/UI 资产)、cases/(用例=资产组合)、versions/(版本报告)、manifests/(被测插件源码)、api/(旧项目/环境数据,已迁移)、legacy-*/(旧 plans/reports/results 归档);
+- 项目文件直接放在 `test-mode/` 根:assets/(接口/UI 资产)、cases/(用例=资产组合)、reports/(最新/历史报告)、manifests/(被测插件源码)、api/(旧项目/环境数据,已迁移)、legacy-*/(旧 plans/reports/results 归档);
 - **旧数据迁移是安全默认**:`POST /api/migrate/assets` 默认 dry-run,必须 `{"apply": true}` 才写盘;已存在 `cases[].assets` 的用例只合并、绝不覆盖,写盘前自动备份 `cases/` 到 `backup-assets-migration-*` 并校验引用数不减少;
 - **迁移保留步骤数据**:旧用例 `steps[].data` 写入 `assets[].data`(同一资产重复步骤按顺序保留);已迁移丢失 data 的存量工作项执行时只读回退(唯一值才回退),不改文件;
 - 多会话并发编辑由 host 的文件操作锁与原子写保护。
@@ -73,7 +73,7 @@ dsh-test-mode/
 
 - **Host 端**(`lib/index.js`):注册 `/dsh-test-mode/api/run` JSON API——接收 `{ name, source, assertions }`,源码求值(vm 沙箱,与 `cordis_define` 的 code.host 同形),在隔离作用域装载、断言、卸载,返回三阶段报告;
 - **测试引擎**(`lib/plugin-test.js`):`ctx.plugin()` 返回的 fiber 提供作用域隔离与卸载;`tools.schemas()` 做基线对比;`ctx.on` 探针验证事件通路;
-- **客户端**(`lib/client.js`):注册测试模式的对话视图标签(React 原生,无 iframe;顶层:基础配置 / 资产库 / 测试工作项 / 版本;资产库内含「接口」「UI 组件」「UI 流程」子标签,测试工作项内含「功能测试」「e2e测试」「性能测试」「安全测试」四个标签页),跟随当前会话——只有当前会话是测试模式时才注册,切到其他模式立即注销(与 ui-design 同门控);
+- **客户端**(`lib/client.js`):注册测试模式的对话视图标签(React 原生,无 iframe;顶层:基础配置 / 资产库 / 测试工作项 / 报告;资产库内含「接口」「UI 组件」「UI 流程」子标签,测试工作项内含「功能测试」「e2e测试」「性能测试」「安全测试」四个标签页),跟随当前会话——只有当前会话是测试模式时才注册,切到其他模式立即注销(与 ui-design 同门控);
 - **会话行**(`lib/preset.js`):测试模式组合内装载,注册测试工作流提示段 + 自动创建 `test-mode/` 目录。
 
 **断言语义边界**(与仓库 HMR 安全测试对齐):
@@ -96,13 +96,12 @@ dsh-test-mode/
 - **内置工作流技能**:`test-mode-workflow`(资产/工作项字段、JSON 示例、断言/环境/数据工厂、UI 定位与等待、失败归因详情)、`api-testing-assets` / `ui-e2e-assets` / `performance-testing-assets` / `security-testing-assets`(按四类工作项路由到对应方法);常驻提示词只保留契约与规则(约 4.2k 字),细节按需加载;
 - **内置第三方测试技能(随包发布,无需下载)**:来自 [awesome-qa-skills](https://github.com/naodeng/awesome-qa-skills)(PolyForm Noncommercial 1.0.0,见 `assets/skills/qa/NOTICE.md`):`test-case-writing`、`test-case-reviewer`、`equivalence-partitioning`、`boundary-value-testing`、`api-testing`、`api-negative-testing`、`ui-test-playwright`、`ui-test-selector-review`、`api-security-testing`、`performance-testing`;
 外部开源技能放到 `~/.dsh/test-mode-skills`、`<workspace>/.dsh/test-mode-skills` 或 `DSH_TEST_MODE_SKILLS` 指定目录即可被本插件会话加载,其他模式不可见;支持 `<name>/SKILL.md` 与 `<name>.md`(YAML frontmatter:name/description);
-- **固定报告看板**:执行后自动覆盖写 `reports/latest.json`(只存统计:覆盖率/通过率/按模块/失败名+错误摘要,以及测试工作项名称/类型/结果/需求/资产名/断言数);用户可随时保存历史报告到 `reports/history/`(不可变),看板为图表形式(六维健康度雷达、资产状态环图、按模块/资产类型堆叠条形图、工作项分布环图+类型条、模块×测试类型覆盖热力图、历史趋势折线),工作项明细可展开;不保存请求/响应/步骤明细;`POST /api/versions` 仍保留全绿发布门禁;
+- **固定报告看板**:执行后自动覆盖写 `reports/latest.json`(只存统计:覆盖率/通过率/按模块/失败名+错误摘要,以及测试工作项名称/类型/结果/需求/资产名/断言数);用户可随时保存历史报告到 `reports/history/`(不可变),看板为图表形式(六维健康度雷达、资产状态环图、按模块/资产类型堆叠条形图、工作项分布环图+类型条、模块×测试类型覆盖热力图、历史趋势折线),工作项明细可展开;不保存请求/响应/步骤明细;
 - **标签分类管理**:标签库按分类组织(`categories: [{name, tags}]`,默认 测试类型/功能模块/未分类;旧平铺 `tags` 自动迁移),基础配置→标签可增删分类/标签、移动标签;标签筛选作为高级筛选默认收起,点击「标签筛选」才展开;独立成行、按分类分组,每类默认显示最常用的 6 个(已选始终保留),其余「更多」展开,且只显示当前 tab 实际使用的标签;
 - **标签筛选与按标签回归**:资产库/工作项支持标签 chips 筛选;资产查询支持 `GET /api/assets?tags=a,b`,工作项查询支持 `GET /api/cases?tag=a`,批量执行支持 `POST /api/assets/run-batch { tags }`;资产标签不在标签库时软提示(不拒绝);
-- **安全回归支持**:安全专用资产(`security.category`:无凭证/不存在ID/错误泄露/越权)可一键脚手架生成(`POST /api/security/scaffold`,默认 dry-run);安全资产断言期望 2xx 会软提示;保存版本可开启安全门禁(`requireSecurity:true`,要求安全类工作项全部通过);
-- **UI 资产粒度软校验**:component 应单页面、≤6 步、≥1 条断言;跨页/步数过多/无断言时 API 返回 `warnings`(不拒绝保存);`GET /api/assets/granularity` 查看汇总,`POST /api/assets/granularity-report` 生成 `test-mode/granularity-report.md` 整改清单;
+- **安全回归支持**:安全专用资产(`security.category`:无凭证/不存在ID/错误泄露/越权)可一键脚手架生成(`POST /api/security/scaffold`,默认 dry-run);安全资产断言期望 2xx 会软提示;- **UI 资产粒度软校验**:component 应单页面、≤6 步、≥1 条断言;跨页/步数过多/无断言时 API 返回 `warnings`(不拒绝保存);`GET /api/assets/granularity` 查看汇总,`POST /api/assets/granularity-report` 生成 `test-mode/granularity-report.md` 整改清单;
 - **测试工作项**:`cases/<id>.json`,按 `type` 分功能测试/e2e测试/性能测试/安全测试四类;字段:标题(name)、优先级(priority)、关联需求(requirement)、自动化状态(automation: manual/auto/partial)、结果(result: not_run/passed/failed/blocked/skipped)、关联缺陷(defects 票号/链接数组)、资产组合(assets);
-- **版本报告**:报告只有一种——版本;`POST /api/versions` 保存前校验所有资产已通过且无过期,版本默认保留、由用户手工删除;版本页可发起全量系统测试、对比与删除;
+- **固定报告**:执行后自动覆盖 `reports/latest.json`;用户可随时保存历史报告(`POST /api/reports/history`),默认保留、由用户手工删除;报告页含图表看板、失败摘要与历史趋势;
 - **搜索筛选**:用例视图支持关键字(名称/描述/标签)、优先级、状态、标签过滤;`archived` 状态默认折叠,可勾选「显示归档」;
 - **保存校验**:用例/项目/资产的保存做结构校验——字段缺失、枚举非法(priority/status/method/断言类型)、`requestRef`/`uiRef`/资产引用不存在的资源都会被 400 拒绝,报错信息含具体位置(如 `steps[1].requestRef points to a missing resource…`),供智能体按报错修正;
 - **文件写入自动校验**:智能体用 write/edit 工具写入 `test-mode/` 下的用例/项目/脚本文件后,`tools/post-execute` 钩子自动校验结构,校验失败以工具失败结果反馈(含具体位置),模型必须修正后重写;

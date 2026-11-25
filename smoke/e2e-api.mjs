@@ -1189,8 +1189,8 @@ console.log('\n=== 预设 prompt 段占位符 ===')
   check(presetLines.length < 6000, '常驻提示词保持精简(<6000 字)', `${presetLines.length}`)
 }
 
-// ── 5.13 测试资产与版本(资产化模型) ──────────────────────────────────
-console.log('\n=== 测试资产与版本 ===')
+// ── 5.13 测试资产(资产化模型) ───────────────────────────────────────
+console.log('\n=== 测试资产 ===')
 // 迁移:旧项目/用例 → 资产(幂等)
 // 迁移默认 dry-run:只算计划不写盘,返回 hint;必须显式 apply:true。
 const migratedDry = await api('POST', '/api/migrate/assets', { workspaceId })
@@ -1385,10 +1385,6 @@ const failingAsset = await api('POST', '/api/assets', { workspaceId, kind: 'api'
 const failingRun = await api('POST', '/api/assets/run', { workspaceId, assetId: failingAsset.body.asset.id })
 check(failingRun.body.result.pass === false && failingRun.body.asset.status === 'failed', 'asset failed status on failure', JSON.stringify(failingRun.body.asset.status))
 
-// 版本保存:存在未通过资产时拒绝并列出清单
-const versionBlocked = await api('POST', '/api/versions', { workspaceId })
-check(versionBlocked.status === 409 && Array.isArray(versionBlocked.body.failing) && versionBlocked.body.failing.length > 0, 'version save blocked when assets not solid', JSON.stringify(versionBlocked.body.message))
-
 // 批量执行:只处理待测资产,并按 batchSize 分批
 await api('PUT', `/api/assets/${failingAsset.body.asset.id}`, { workspaceId, request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] } })
 const batchRun = await api('POST', '/api/assets/run-batch', { workspaceId, module: '资产测试', batchSize: 1 })
@@ -1397,35 +1393,12 @@ await api('POST', '/api/assets/run-batch', { workspaceId, module: '资产测试'
 const moduleAssets = await api('GET', '/api/assets', undefined, { workspaceId, module: '资产测试' })
 check(moduleAssets.body.assets.every((asset) => asset.status === 'solid'), 'batch run solidifies pending assets', JSON.stringify(moduleAssets.body.assets.map((asset) => [asset.name, asset.status])))
 
-// 清理遗留(未迁移测试的)资产后保存版本:必须全部通过
-const allAssets = await api('GET', '/api/assets', undefined, { workspaceId })
-for (const asset of allAssets.body.assets) {
-  if (asset.module !== '资产测试') await api('DELETE', `/api/assets/${asset.id}`, undefined, { workspaceId })
-}
-const versionSaved = await api('POST', '/api/versions', { workspaceId, name: 'e2e 全量版本' })
-check(versionSaved.status === 200 && versionSaved.body.version?.coverage?.assetsTotal === moduleAssets.body.assets.length, 'save version when all assets solid', JSON.stringify(versionSaved.body.version?.coverage))
-const versionId = versionSaved.body.version.id
-const versionsList = await api('GET', '/api/versions', undefined, { workspaceId })
-check(versionsList.status === 200 && versionsList.body.versions.some((version) => version.id === versionId), 'list versions', JSON.stringify(versionsList.body.versions.map((version) => version.id)))
-const versionDetail = await api('GET', `/api/versions/${versionId}`, undefined, { workspaceId })
-check(versionDetail.status === 200 && versionDetail.body.version.id === versionId, 'version detail', '')
-const versionCompare = await api('GET', `/api/versions/${versionId}/compare`, undefined, { workspaceId })
-check(versionCompare.status === 200 && versionCompare.body.hasPrevious === false, 'version compare without previous', JSON.stringify(versionCompare.body))
-
-// 配置变更 → 过期 → 保存版本被拒;重跑后恢复
+// 配置变更 → 过期 → 重跑恢复
 await api('PUT', `/api/assets/${assetId}`, { workspaceId, name: '健康检查(改)' })
 const staleAssets = await api('GET', '/api/assets', undefined, { workspaceId })
 check(staleAssets.body.assets.some((asset) => asset.id === assetId && asset.stale === true), 'asset updated after pass becomes stale', JSON.stringify(staleAssets.body.assets.find((asset) => asset.id === assetId)?.stale))
-const versionBlockedStale = await api('POST', '/api/versions', { workspaceId })
-check(versionBlockedStale.status === 409, 'version save blocked by stale assets', JSON.stringify(versionBlockedStale.body.message))
 const rerunStale = await api('POST', '/api/assets/run', { workspaceId, assetId })
 check(rerunStale.body.asset.status === 'solid', 'rerun clears stale state', JSON.stringify({ status: rerunStale.body.asset.status }))
-const versionSaved2 = await api('POST', '/api/versions', { workspaceId, name: 'e2e 全量版本 2' })
-check(versionSaved2.status === 200, 'save version after rerun', JSON.stringify(versionSaved2.body.message))
-const versionCompare2 = await api('GET', `/api/versions/${versionSaved2.body.version.id}/compare`, undefined, { workspaceId })
-check(versionCompare2.status === 200 && versionCompare2.body.hasPrevious === true, 'version compare with previous', JSON.stringify(versionCompare2.body.previous?.id))
-const deletedVersion = await api('DELETE', `/api/versions/${versionSaved2.body.version.id}`, undefined, { workspaceId })
-check(deletedVersion.status === 200, 'delete version', '')
 
 // ── 安全回归:安全资产软校验 / 脚手架 / 版本安全门禁 ──────────────────
 const secSource = await api('POST', '/api/assets', {
@@ -1469,11 +1442,6 @@ const inAsset = await api('POST', '/api/assets', {
 const inRun = await api('POST', '/api/assets/run', { workspaceId, assetId: inAsset.body.asset.id })
 check(inRun.body.result.pass === true, 'in assertion passes for listed status', JSON.stringify(inRun.body.result?.assertions))
 
-// 版本安全门禁:安全类工作项未通过时拒绝保存
-const pendingSecurityItem = await api('POST', '/api/cases', { workspaceId, name: '未通过安全项', type: 'security', priority: 'high', automation: 'auto', result: 'not_run', assets: [] })
-const securityGateBlocked = await api('POST', '/api/versions', { workspaceId, name: '安全门禁版本', requireSecurity: true })
-check(securityGateBlocked.status === 409 && (securityGateBlocked.body.code === 'security' || securityGateBlocked.body.message.includes('安全')), 'version security gate blocks failing security items', JSON.stringify(securityGateBlocked.body))
-
 // 清理安全脚手架数据
 for (const item of secApply.body.plan.assets) await api('DELETE', `/api/assets/${item.id}`, undefined, { workspaceId })
 await api('DELETE', `/api/cases/${secWorkItemId}`, undefined, { workspaceId })
@@ -1481,7 +1449,6 @@ await api('DELETE', `/api/assets/${secSource.body.asset.id}`, undefined, { works
 await api('DELETE', `/api/assets/${badSecurityAsset.body.asset.id}`, undefined, { workspaceId })
 await api('DELETE', `/api/assets/${notContainsAsset.body.asset.id}`, undefined, { workspaceId })
 await api('DELETE', `/api/assets/${inAsset.body.asset.id}`, undefined, { workspaceId })
-await api('DELETE', `/api/cases/${pendingSecurityItem.body.case.id}`, undefined, { workspaceId })
 
 // ── 5.14 固定报告:统计快照 / 历史报告 / 自动刷新 ──────────────────────
 console.log('\n=== 固定报告 ===')

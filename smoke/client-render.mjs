@@ -1,9 +1,9 @@
 /**
  * 客户端渲染冒烟测试(资产化模型):jsdom 渲染 5 个视图标签,验证:
- * 1. 视图门控与注册(基础配置 / 资产库 / 用例 / 报告 / 版本);
+ * 1. 视图门控与注册(基础配置 / 资产库 / 用例 / 报告);
  * 2. 资产库:状态徽章、执行、UI 子标签、批量补测按钮;
  * 3. 用例:资产组合展示、执行结果;
- * 4. 报告:看板统计/失败摘要/历史报告;版本:保存与删除;
+ * 4. 报告:看板统计/失败摘要/历史报告;
  * 5. 基础配置:环境卡片与数据工厂子标签。
  *
  * 运行:node smoke/client-render.mjs
@@ -173,7 +173,6 @@ const state = {
     { id: 'case-e2e', name: '下单e2e', module: '订单', tags: [], type: 'e2e', priority: 'medium', requirement: 'REQ-下单-002', automation: 'partial', result: 'not_run', defects: [], assets: [] },
     { id: 'case-fail', name: '支付失败工作项', module: '支付', tags: [], type: 'functional', priority: 'low', requirement: 'REQ-支付-003', automation: 'manual', result: 'failed', defects: ['#474'], assets: [] },
   ],
-  versions: [],
   pending: { total: 2, pending: 1, untested: 1, failed: 0, stale: 0, solid: 1 },
   calls: [],
 }
@@ -249,27 +248,6 @@ function makeFetchStub() {
       return json({ ok: true, result: { name: '登录用例', durationMs: 3, summary: { total: 1, passed: 1, failed: 0, skipped: 0 }, results: [{ name: '登录接口', pass: true }], exports: {} } })
     }
     if (u.includes('/api/cases')) return json({ ok: true, cases: state.cases })
-    if (u.includes('/api/versions/') && method === 'DELETE') {
-      const id = u.split('/api/versions/')[1].split('?')[0]
-      const index = state.versions.findIndex((version) => version.id === id)
-      if (index >= 0) state.versions.splice(index, 1)
-      return json({ ok: true })
-    }
-    if (u.includes('/compare')) return json({ ok: true, hasPrevious: false })
-    if (u.includes('/api/versions') && method === 'POST') {
-      if (state.pending.pending > 0) {
-        return json({ ok: false, message: `还有 ${state.pending.pending} 个资产未通过或已过期,不能保存版本`, failing: state.assets.filter((asset) => asset.status !== 'solid').map((asset) => ({ id: asset.id, name: asset.name, status: asset.status })) }, 409)
-      }
-      const version = {
-        id: `version-${state.versions.length + 1}`, name: '全量系统测试 1', createdAt: new Date().toISOString(),
-        coverage: { assetsTotal: state.assets.length, assetsExecuted: state.assets.length, solid: state.assets.length, failed: 0, untested: 0 },
-        summary: { total: state.assets.length, passed: state.assets.length, failed: 0 },
-        byModule: [{ module: '登录', total: state.assets.length, passed: state.assets.length, failed: 0 }], failedAssets: [],
-      }
-      state.versions.unshift(version)
-      return json({ ok: true, version })
-    }
-    if (u.includes('/api/versions')) return json({ ok: true, versions: state.versions })
     if (u.includes('/api/environments')) return json({ ok: true, environments: [{ id: 'env1', name: '测试环境', variables: { BASE_URL: 'http://x' } }], defaultEnvironmentId: 'env1' })
     if (u.includes('/api/tags')) return json({
       ok: true,
@@ -371,12 +349,12 @@ async function renderProbe(preset) {
   return rootEl
 }
 await renderProbe('dsh-test-mode')
-check(registered.length === 5, `测试模式会话注册 5 个视图(实际 ${registered.length})`, registered.map((entry) => entry.def.id).join(','))
-check(registered.every((entry) => ['dsh-test-mode-environments', 'dsh-test-mode-assets', 'dsh-test-mode-cases', 'dsh-test-mode-reports', 'dsh-test-mode-versions'].includes(entry.def.id)), '顶层视图为基础配置/资产库/用例/报告/版本', registered.map((entry) => entry.def.id).join(','))
+check(registered.length === 4, `测试模式会话注册 4 个视图(实际 ${registered.length})`, registered.map((entry) => entry.def.id).join(','))
+check(registered.every((entry) => ['dsh-test-mode-environments', 'dsh-test-mode-assets', 'dsh-test-mode-cases', 'dsh-test-mode-reports'].includes(entry.def.id)), '顶层视图为基础配置/资产库/用例/报告', registered.map((entry) => entry.def.id).join(','))
 await renderProbe('standard')
 check(registered.length === 0, '非测试模式会话注销全部视图', registered.map((entry) => entry.def.id).join(','))
 await renderProbe('dsh-test-mode')
-check(registered.length === 5, '切回测试模式会话重新注册 5 个视图', registered.map((entry) => entry.def.id).join(','))
+check(registered.length === 4, '切回测试模式会话重新注册 4 个视图', registered.map((entry) => entry.def.id).join(','))
 
 const viewProps = {
   sessionId: 's1',
@@ -660,62 +638,6 @@ console.log('\n=== 报告 ===')
     const cancel = findButton(rootEl, '取消')
     cancel?.click()
     await sleep(20)
-  }
-}
-
-// ── 5. 版本 ─────────────────────────────────────────────────────────────
-console.log('\n=== 版本 ===')
-{
-  const rootEl = await renderView('dsh-test-mode-versions')
-  check(rootEl.textContent.includes('待测资产 2') && rootEl.textContent.includes('版本'), '版本页显示待测资产计数', rootEl.textContent.slice(0, 160))
-  check(rootEl.textContent.includes('要求安全测试通过'), '版本页提供安全门禁开关', '')
-  const gateCheckbox = [...rootEl.querySelectorAll('input[type="checkbox"]')].find((input) => input.parentElement?.textContent.includes('要求安全测试通过'))
-  check(gateCheckbox !== undefined, '安全门禁复选框可交互', '')
-  const saveButton = findButton(rootEl, '保存为版本')
-  check(saveButton !== undefined, '版本页有「保存为版本」按钮(由服务端校验)', JSON.stringify(saveButton?.disabled))
-  const runButton = findButton(rootEl, '发起全量系统测试')
-  check(runButton !== undefined, '版本页有全量测试入口', '')
-  if (runButton) {
-    runButton.click()
-    await sleep(200)
-    check(rootEl.textContent.includes('全量测试完成'), '全量测试批量执行并给出完成提示', rootEl.textContent.slice(-200))
-    check(state.pending.pending === 0, '全量测试后没有待测资产', JSON.stringify(state.pending))
-  }
-  const saveAfter = findButton(rootEl, '保存为版本')
-  if (saveAfter) {
-    saveAfter.click()
-    await sleep(80)
-    check(rootEl.textContent.includes('版本已保存') && rootEl.textContent.includes('全量系统测试 1'), '保存版本成功并出现在列表', rootEl.textContent.slice(-200))
-  }
-  const deleteButton = [...rootEl.querySelectorAll('button')].filter((button) => button.textContent.trim() === '删除')[0]
-  check(deleteButton !== undefined, '版本卡片有删除按钮', '')
-  if (deleteButton) {
-    deleteButton.click()
-    await sleep(30)
-    check(rootEl.textContent.includes('删除版本「全量系统测试 1」?'), '删除版本弹出自研 ConfirmDialog', rootEl.textContent.slice(-200))
-    check(confirmCalls === 0, '删除不调用 window.confirm', String(confirmCalls))
-    const cancelButton = [...rootEl.querySelectorAll('button')].find((button) => button.textContent.trim() === '取消')
-    cancelButton.click()
-    await sleep(20)
-    check(state.versions.length === 1, '取消删除后版本仍存在', String(state.versions.length))
-  }
-}
-
-// ── 5. 版本保存前置校验(失败清单) ───────────────────────────────────────
-console.log('\n=== 版本保存校验 ===')
-{
-  state.assets.push({
-    id: 'api:broken', kind: 'api', module: '登录', name: '坏接口', tags: [],
-    request: { method: 'GET', url: '/api/broken' }, baseUrl: 'http://x', status: 'failed',
-  })
-  state.assets.find((asset) => asset.id === 'ui:login-flow').status = 'untested'
-  recomputePending()
-  const rootEl = await renderView('dsh-test-mode-versions')
-  const saveButton = findButton(rootEl, '保存为版本')
-  if (saveButton) {
-    saveButton.click()
-    await sleep(80)
-    check(rootEl.textContent.includes('还不能保存版本') && rootEl.textContent.includes('坏接口'), '保存版本被拒并列出失败资产', rootEl.textContent.slice(-220))
   }
 }
 

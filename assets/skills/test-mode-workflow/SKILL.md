@@ -1,6 +1,6 @@
 ---
 name: test-mode-workflow
-description: Detailed reference for test-mode assets and test work items - JSON fields and samples for API/UI component/UI flow assets, work item fields, versions, assertions, environments, session variables, data factory, UI element library/probe, failure attribution, and validation errors. Load it when you need exact shapes, samples, or edge-case rules.
+description: Detailed reference for test-mode assets and test work items - JSON fields and samples for API/UI component/UI flow assets, work item fields, reports, assertions, environments, session variables, data factory, UI element library/probe, failure attribution, and validation errors. Load it when you need exact shapes, samples, or edge-case rules.
 ---
 
 # 测试模式详细规范（按需加载）
@@ -102,7 +102,6 @@ description: Detailed reference for test-mode assets and test work items - JSON 
 | `POST /api/assets/run-batch` | 批量执行（`assetIds` 或 `filter`，`batchSize`） |
 | `POST /api/cases/:id/run` | 按 `assets` 顺序执行工作项，回写 `result` |
 | `POST /api/ui/probe` | 打开页面返回可交互元素（生成/修复 UI 资产前必用） |
-| `GET/POST /api/versions` | 版本列表 / 保存版本（409 + failing 表示有未通过/过期资产） |
 | `POST /api/import/openapi` | 导入 OpenAPI 3.x JSON，生成/更新接口资产来源 |
 | `GET /api/dbdata` | 查看参考表与样例 |
 
@@ -144,13 +143,13 @@ description: Detailed reference for test-mode assets and test work items - JSON 
 4. 失败：插件返回失败步骤与截图路径；定位失败先重探再修，不修改断言凑通过；
 5. 截图步骤 `screenshot` 会把文件写到 `test-mode/ui/screenshots/`。
 
-## 7. 失败归因与版本
+## 7. 失败归因与报告
 
 1. 资产失败时先看 `lastRun.error` 与断言 actual；
 2. 若所在模块在 `changelogs/` 中：先确认期望是否过期（更新断言），不要当缺陷；
 3. UI 定位失败：`/api/ui/probe` 重探 → 更新元素库/步骤；
 4. 以上都不是 → 真缺陷：开缺陷票，把票号写入相关工作项 `defects`；
-5. 修复后只重跑失败/过期资产（`run-batch` 指定 ids），全部 solid 后再 `POST /api/versions`。
+5. 修复后只重跑失败/过期资产（`run-batch` 指定 ids）；需要留档时 `POST /api/reports/history {name}` 保存历史报告。
 
 ## 7.5 报告（只存统计）
 
@@ -162,8 +161,7 @@ description: Detailed reference for test-mode assets and test work items - JSON 
   测试工作项明细（名称/类型/结果/需求/标签/资产名/断言数），以及广度/深度/质量维度
   （模块集合覆盖、类型/需求/标签覆盖；断言密度/负向占比/资产数/缺陷/重试；通过/新鲜/高优失败/安全性能通过率）；
   **不要写请求体/响应体/步骤明细/截图**；
-- 版本与历史报告是两种语义：`POST /api/versions` 仍是全绿发布快照（所有资产 solid 且无过期），
-  历史报告可随时保存。
+- 历史报告可随时保存（允许带失败，记录当时状态）；报告页保存后进入历史列表。
 
 ## 8. 保存与校验
 
