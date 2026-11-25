@@ -97,7 +97,7 @@ dsh-test-mode/
 - **内置第三方测试技能(随包发布,无需下载)**:来自 [awesome-qa-skills](https://github.com/naodeng/awesome-qa-skills)(PolyForm Noncommercial 1.0.0,见 `assets/skills/qa/NOTICE.md`):`test-case-writing`、`test-case-reviewer`、`equivalence-partitioning`、`boundary-value-testing`、`api-testing`、`api-negative-testing`、`ui-test-playwright`、`ui-test-selector-review`、`api-security-testing`、`performance-testing`;
 外部开源技能放到 `~/.dsh/test-mode-skills`、`<workspace>/.dsh/test-mode-skills` 或 `DSH_TEST_MODE_SKILLS` 指定目录即可被本插件会话加载,其他模式不可见;支持 `<name>/SKILL.md` 与 `<name>.md`(YAML frontmatter:name/description);
 - **固定报告看板**:执行后自动覆盖写 `reports/latest.json`(只存统计:覆盖率/通过率/按模块/失败名+错误摘要);用户可随时保存历史报告到 `reports/history/`(不可变),看板显示趋势;不保存请求/响应/步骤明细;`POST /api/versions` 仍保留全绿发布门禁;
-- **标签分类管理**:标签库按分类组织(`categories: [{name, tags}]`,默认 测试类型/功能模块/未分类;旧平铺 `tags` 自动迁移),基础配置→标签可增删分类/标签、移动标签;筛选 chips 按分类分组;
+- **标签分类管理**:标签库按分类组织(`categories: [{name, tags}]`,默认 测试类型/功能模块/未分类;旧平铺 `tags` 自动迁移),基础配置→标签可增删分类/标签、移动标签;筛选区独立成行、按分类分组,每类默认显示最常用的 6 个(已选始终保留),其余「更多」展开,且只显示当前 tab 实际使用的标签;
 - **标签筛选与按标签回归**:资产库/工作项支持标签 chips 筛选;资产查询支持 `GET /api/assets?tags=a,b`,工作项查询支持 `GET /api/cases?tag=a`,批量执行支持 `POST /api/assets/run-batch { tags }`;资产标签不在标签库时软提示(不拒绝);
 - **安全回归支持**:安全专用资产(`security.category`:无凭证/不存在ID/错误泄露/越权)可一键脚手架生成(`POST /api/security/scaffold`,默认 dry-run);安全资产断言期望 2xx 会软提示;保存版本可开启安全门禁(`requireSecurity:true`,要求安全类工作项全部通过);
 - **UI 资产粒度软校验**:component 应单页面、≤6 步、≥1 条断言;跨页/步数过多/无断言时 API 返回 `warnings`(不拒绝保存);`GET /api/assets/granularity` 查看汇总,`POST /api/assets/granularity-report` 生成 `test-mode/granularity-report.md` 整改清单;
