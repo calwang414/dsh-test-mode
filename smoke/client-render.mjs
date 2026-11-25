@@ -80,6 +80,29 @@ function reportFixture() {
       { type: 'uiFlow', total: 0, passed: 0, failed: 0, stale: 0, untested: 0 },
     ],
     failures: { count: 1, shown: 1, items: [{ assetId: 'api:me', name: '获取用户', module: '用户', error: '500 boom' }] },
+    workItems: {
+      total: 3,
+      summary: { passed: 1, failed: 1, not_run: 1, blocked: 0, skipped: 0 },
+      byType: [
+        { type: 'functional', label: '功能测试', total: 2, passed: 1, failed: 1, not_run: 0, blocked: 0, skipped: 0 },
+        { type: 'e2e', label: 'e2e测试', total: 1, passed: 0, failed: 0, not_run: 1, blocked: 0, skipped: 0 },
+      ],
+      items: [
+        {
+          id: 'case-1', name: '登录用例', type: 'functional', typeLabel: '功能测试', priority: 'high', result: 'passed',
+          module: '登录', tags: ['冒烟'], requirement: '可登录', defects: [], assetCount: 1, assertionCount: 2,
+          assets: [{ id: 'api:login', name: '登录接口', kind: 'api', status: 'solid', stale: false }],
+        },
+        {
+          id: 'case-2', name: '支付失败工作项', type: 'functional', typeLabel: '功能测试', priority: 'high', result: 'failed',
+          module: '订单', tags: [], requirement: '支付失败提示', defects: ['BUG-1'], assetCount: 0, assertionCount: 0, assets: [],
+        },
+        {
+          id: 'case-3', name: '下单 e2e', type: 'e2e', typeLabel: 'e2e测试', priority: 'medium', result: 'not_run',
+          module: '订单', tags: [], requirement: '', defects: [], assetCount: 0, assertionCount: 0, assets: [],
+        },
+      ],
+    },
   }
 }
 
@@ -575,6 +598,23 @@ console.log('\n=== 报告 ===')
   check(rootEl.textContent.includes('覆盖率') && rootEl.textContent.includes('通过率'), '报告看板显示覆盖/通过率', rootEl.textContent.slice(0, 160))
   check(rootEl.textContent.includes('按模块') && rootEl.textContent.includes('登录'), '报告看板显示按模块统计', '')
   check(rootEl.textContent.includes('失败资产 1') && rootEl.textContent.includes('500 boom'), '报告看板显示失败摘要', rootEl.textContent.slice(0, 260))
+  check(rootEl.textContent.includes('测试工作项 3') && rootEl.textContent.includes('登录用例'), '报告看板显示测试工作项明细', rootEl.textContent.slice(0, 320))
+  const reportItem = rootEl.querySelector('[data-report-item="case-1"]')
+  check(reportItem !== null, '测试工作项行可展开', '')
+  if (reportItem) {
+    reportItem.click()
+    await sleep(30)
+    check(rootEl.textContent.includes('需求:可登录') && rootEl.textContent.includes('登录接口'), '展开显示需求与资产内容', rootEl.textContent.slice(0, 400))
+  }
+  const e2eFilter = rootEl.querySelector('[data-report-item-type="e2e"]')
+  check(e2eFilter !== null, '报告测试工作项可按类型筛选', '')
+  if (e2eFilter) {
+    e2eFilter.click()
+    await sleep(30)
+    check(rootEl.textContent.includes('下单 e2e') && !rootEl.textContent.includes('登录用例'), '筛选 e2e 工作项', rootEl.textContent.slice(0, 300))
+    rootEl.querySelector('[data-report-item-type="all"]')?.click()
+    await sleep(20)
+  }
   check(rootEl.textContent.includes('历史报告') && rootEl.textContent.includes('历史报告一'), '报告看板显示历史报告', '')
   check(rootEl.querySelector('svg') !== null, '历史报告趋势图渲染', '')
   const refreshButton = findButton(rootEl, '刷新统计')
