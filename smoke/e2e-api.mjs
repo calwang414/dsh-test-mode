@@ -976,7 +976,22 @@ check(tagIn.status === 200 && tagIn.body.ok, 'accept in-library tags', JSON.stri
 const tagDel = await api('DELETE', `/api/tags/${encodeURIComponent('回归')}`, undefined, { workspaceId })
 check(tagDel.status === 200 && !tagDel.body.tags.includes('回归'), 'delete tag', JSON.stringify(tagDel.body))
 const tagsFile = JSON.parse(await readFile(join(workspacePath, 'test-mode/tags.json'), 'utf8'))
-check(Array.isArray(tagsFile.tags) && tagsFile.tags.includes('登录'), 'tags.json persisted', JSON.stringify(tagsFile.tags))
+const persistedTags = Array.isArray(tagsFile.categories)
+  ? tagsFile.categories.flatMap((category) => category.tags ?? [])
+  : tagsFile.tags
+check(Array.isArray(tagsFile.categories) && persistedTags.includes('登录'), 'tags.json persisted with categories', JSON.stringify(tagsFile.categories?.map((category) => category.name)))
+
+// 标签分类:新增分类、按分类加标签、移动标签、删除空分类
+const categoryAdd = await api('POST', '/api/tags/categories', { workspaceId, name: '业务域' })
+const bizCategory = categoryAdd.body.categories?.find((category) => category.name === '业务域')
+check(categoryAdd.status === 200 && bizCategory !== undefined, 'add tag category', JSON.stringify(categoryAdd.body.categories?.map((category) => category.name)))
+const categoryTag = await api('POST', '/api/tags', { workspaceId, name: '订单域', category: '业务域' })
+check(categoryTag.body.categories?.find((category) => category.name === '业务域')?.tags.includes('订单域'), 'add tag into category', JSON.stringify(categoryTag.body.categories?.find((category) => category.name === '业务域')))
+const movedTag = await api('PUT', `/api/tags/${encodeURIComponent('订单域')}`, { workspaceId, category: '功能/模块' })
+check(movedTag.body.categories?.find((category) => category.name === '功能/模块')?.tags.includes('订单域') && !movedTag.body.categories?.find((category) => category.name === '业务域')?.tags.includes('订单域'), 'move tag between categories', JSON.stringify(movedTag.body.categories?.map((category) => [category.name, category.tags])))
+const categoryDelete = await api('DELETE', `/api/tags/categories/${encodeURIComponent(bizCategory.id)}`, undefined, { workspaceId })
+check(categoryDelete.status === 200 && !categoryDelete.body.categories?.some((category) => category.id === bizCategory.id), 'delete empty tag category', JSON.stringify(categoryDelete.body.categories?.map((category) => category.name)))
+await api('DELETE', `/api/tags/${encodeURIComponent('订单域')}`, undefined, { workspaceId })
 // 直接写坏 tags.json 会被文件校验拦截
 await writeFile(join(workspacePath, 'test-mode/tags.json'), JSON.stringify({ tags: [1] }))
 const badTagsVerdict = await validateTestModeFile(workspacePath, join(workspacePath, 'test-mode/tags.json'))

@@ -117,7 +117,8 @@ description: Detailed reference for test-mode assets and test work items - JSON 
 
 ## 3.6 标签
 
-- 标签库：`test-mode/tags.json`（基础配置 → 标签）；工作项 tags 必须来自库，资产 tags 库外只给软提示；
+- 标签库：`test-mode/tags.json` 按分类管理 `{ categories: [{ id, name, tags }] }`（默认 测试类型/功能模块/未分类；旧 `{ tags: [] }` 自动迁移为分类）；基础配置 → 标签可增删分类/标签；工作项 tags 必须来自库，资产 tags 库外只给软提示；
+- 分类 API：`POST /api/tags/categories {name}`、`DELETE /api/tags/categories/:id?moveTo=<id>`；标签移动：`PUT /api/tags/:name {name?, category?}`；
 - 查询/执行过滤：`GET /api/assets?tags=a,b`、`GET /api/cases?tag=a`、`POST /api/assets/run-batch { tags }`；
 - 界面：资产库与工作项都有标签快捷筛选 chips；资产详情会提示库外标签。
 

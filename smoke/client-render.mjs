@@ -187,7 +187,15 @@ function makeFetchStub() {
     }
     if (u.includes('/api/versions')) return json({ ok: true, versions: state.versions })
     if (u.includes('/api/environments')) return json({ ok: true, environments: [{ id: 'env1', name: '测试环境', variables: { BASE_URL: 'http://x' } }], defaultEnvironmentId: 'env1' })
-    if (u.includes('/api/tags')) return json({ ok: true, tags: ['冒烟', '登录'] })
+    if (u.includes('/api/tags')) return json({
+      ok: true,
+      tags: ['冒烟', '登录'],
+      categories: [
+        { id: 'test-type', name: '测试类型', tags: ['冒烟'] },
+        { id: 'function', name: '功能/模块', tags: ['登录'] },
+        { id: 'uncategorized', name: '未分类', tags: [] },
+      ],
+    })
     if (u.includes('/api/dbdata')) return json({ ok: true, tables: [], schemaText: '' })
     if (u.includes('/api/datafactory')) return json({ ok: true, generators: [{ id: 'g1', key: 'phone', name: '手机号', pattern: '{{rand.phone}}', builtin: true }] })
     if (u.includes('/api/session')) return json({ ok: true, variables: {} })
@@ -313,6 +321,14 @@ console.log('\n=== 基础配置 ===')
 {
   const rootEl = await renderView('dsh-test-mode-environments')
   check(rootEl.textContent.includes('测试环境'), '默认环境卡片渲染', rootEl.textContent.slice(0, 120))
+  const tagTab = findButton(rootEl, '标签')
+  check(tagTab !== undefined, '基础配置含「标签」子标签', '')
+  if (tagTab) {
+    tagTab.click()
+    await sleep(30)
+    check(rootEl.textContent.includes('测试类型') && rootEl.textContent.includes('功能/模块') && rootEl.textContent.includes('未分类'), '标签按分类管理', rootEl.textContent.slice(0, 300))
+    check(findButton(rootEl, '+ 添加标签') !== undefined && findButton(rootEl, '+ 添加分类') !== undefined, '标签页提供添加标签/分类', '')
+  }
   const factoryTab = findButton(rootEl, '数据工厂')
   check(factoryTab !== undefined, '基础配置含「数据工厂」子标签', '')
   if (factoryTab) {
@@ -395,6 +411,7 @@ console.log('\n=== 资产库 ===')
   // 标签筛选:只显示带该标签的资产
   const tagChip = (value) => [...rootEl.querySelectorAll('[data-filter-group="tag"]')].find((el) => el.getAttribute('data-filter-value') === value)
   check(tagChip('冒烟') !== undefined, '资产库提供标签快捷筛选', '')
+  check(rootEl.textContent.includes('测试类型:'), '资产标签筛选项按分类分组', '')
   tagChip('冒烟').click()
   await sleep(40)
   check(rootEl.textContent.includes('登录接口') && !rootEl.textContent.includes('获取用户'), '按标签筛选资产', rootEl.textContent.slice(0, 200))
@@ -466,6 +483,7 @@ console.log('\n=== 测试工作项 ===')
   check(rootEl.textContent.includes('登录用例') && rootEl.textContent.includes('支付失败工作项'), '清空筛选恢复全部', '')
   const workTag = (value) => [...rootEl.querySelectorAll('[data-filter-group="tag"]')].find((el) => el.getAttribute('data-filter-value') === value)
   check(workTag('冒烟') !== undefined, '工作项提供标签快捷筛选', '')
+  check(rootEl.textContent.includes('测试类型:'), '工作项标签筛选项按分类分组', '')
   workTag('冒烟').click()
   await sleep(30)
   check(rootEl.textContent.includes('登录用例') && !rootEl.textContent.includes('支付失败工作项'), '按标签筛选工作项', rootEl.textContent.slice(0, 200))
