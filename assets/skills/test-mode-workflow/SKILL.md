@@ -152,6 +152,17 @@ description: Detailed reference for test-mode assets and test work items - JSON 
 4. 以上都不是 → 真缺陷：开缺陷票，把票号写入相关工作项 `defects`；
 5. 修复后只重跑失败/过期资产（`run-batch` 指定 ids），全部 solid 后再 `POST /api/versions`。
 
+## 7.5 报告（只存统计）
+
+- 执行资产/工作项/批量后自动覆盖写 `reports/latest.json`（`GET /api/reports/latest`；
+  也可 `POST /api/reports/latest/refresh` 手动刷新）；永远只有一份最新统计；
+- 需要留档时 `POST /api/reports/history {name}` 保存当前快照（允许带失败，记录当时状态）；
+  `GET /api/reports/history` 列表，`GET/DELETE /api/reports/history/:id`；
+- 报告只存：覆盖率、通过率、按模块/按类型统计、失败资产名 + 错误摘要（最多 50 条、200 字）；
+  **不要写请求体/响应体/步骤明细/截图**；
+- 版本与历史报告是两种语义：`POST /api/versions` 仍是全绿发布快照（所有资产 solid 且无过期），
+  历史报告可随时保存。
+
 ## 8. 保存与校验
 
 - 用 write/edit 写 `test-mode/` 文件，插件自动校验并反馈具体位置；

@@ -1,9 +1,9 @@
 /**
- * 客户端渲染冒烟测试(资产化模型):jsdom 渲染 4 个视图标签,验证:
- * 1. 视图门控与注册(基础配置 / 资产库 / 用例 / 版本);
+ * 客户端渲染冒烟测试(资产化模型):jsdom 渲染 5 个视图标签,验证:
+ * 1. 视图门控与注册(基础配置 / 资产库 / 用例 / 报告 / 版本);
  * 2. 资产库:状态徽章、执行、UI 子标签、批量补测按钮;
  * 3. 用例:资产组合展示、执行结果;
- * 4. 版本:待测计数、全量测试后保存版本、删除确认(自研 ConfirmDialog);
+ * 4. 报告:看板统计/失败摘要/历史报告;版本:保存与删除;
  * 5. 基础配置:环境卡片与数据工厂子标签。
  *
  * 运行:node smoke/client-render.mjs
@@ -65,7 +65,35 @@ function check(condition, label, detail) {
 }
 
 // ── 可变 mock 状态 ─────────────────────────────────────────────────────
+function reportFixture() {
+  return {
+    schemaVersion: 1, generatedAt: '2026-01-03T00:00:00Z', status: 'failed', trigger: 'test',
+    coverage: { assetsTotal: 3, executed: 2, passed: 1, failed: 1, stale: 0, untested: 1, coverageRate: 0.667, passRate: 0.5 },
+    summary: { total: 3, passed: 1, failed: 1, skipped: 0 },
+    byModule: [
+      { module: '登录', total: 2, passed: 1, failed: 1, stale: 0, untested: 0, passRate: 0.5 },
+      { module: '用户', total: 1, passed: 0, failed: 0, stale: 0, untested: 1, passRate: 0 },
+    ],
+    byType: [
+      { type: 'api', total: 2, passed: 1, failed: 1, stale: 0, untested: 0 },
+      { type: 'uiComponent', total: 1, passed: 0, failed: 0, stale: 0, untested: 1 },
+      { type: 'uiFlow', total: 0, passed: 0, failed: 0, stale: 0, untested: 0 },
+    ],
+    failures: { count: 1, shown: 1, items: [{ assetId: 'api:me', name: '获取用户', module: '用户', error: '500 boom' }] },
+  }
+}
+
 const state = {
+  historyReports: [
+    {
+      id: 'report-1', name: '历史报告一', createdAt: '2026-01-01T10:00:00Z', status: 'passed',
+      coverage: { assetsTotal: 3, executed: 3, passed: 3, failed: 0, stale: 0, untested: 0, coverageRate: 1, passRate: 1 },
+    },
+    {
+      id: 'report-2', name: '历史报告二', createdAt: '2026-01-02T10:00:00Z', status: 'failed',
+      coverage: { assetsTotal: 3, executed: 2, passed: 1, failed: 1, stale: 0, untested: 1, coverageRate: 0.667, passRate: 0.5 },
+    },
+  ],
   assets: [
     {
       id: 'api:login', kind: 'api', module: '登录', name: '登录接口', tags: ['冒烟'],
@@ -159,6 +187,22 @@ function makeFetchStub() {
       recomputePending()
       return json({ ok: true, result: { assetId: body.assetId, name: asset?.name, pass: true }, asset })
     }
+    if (u.includes('/api/reports/latest/refresh')) {
+      return json({ ok: true, report: reportFixture() })
+    }
+    if (u.includes('/api/reports/latest')) return json({ ok: true, report: reportFixture() })
+    if (u.includes('/api/reports/history') && method === 'DELETE') {
+      const id = u.split('/api/reports/history/')[1].split('?')[0]
+      state.historyReports = state.historyReports.filter((item) => item.id !== id)
+      return json({ ok: true })
+    }
+    if (u.includes('/api/reports/history') && method === 'POST') {
+      const body = JSON.parse(init.body)
+      const item = { ...reportFixture(), id: `report-${Date.now()}`, name: body.name, createdAt: new Date().toISOString() }
+      state.historyReports.unshift(item)
+      return json({ ok: true, report: item })
+    }
+    if (u.includes('/api/reports/history')) return json({ ok: true, reports: state.historyReports })
     if (u.includes('/api/assets?')) return json({ ok: true, assets: state.assets, summary: assetSummary() })
     if (u.includes('/api/assets')) return json({ ok: true, assets: state.assets, summary: assetSummary() })
     if (u.includes('/api/cases/') && u.endsWith('/run')) {
@@ -287,12 +331,12 @@ async function renderProbe(preset) {
   return rootEl
 }
 await renderProbe('dsh-test-mode')
-check(registered.length === 4, `测试模式会话注册 4 个视图(实际 ${registered.length})`, registered.map((entry) => entry.def.id).join(','))
-check(registered.every((entry) => ['dsh-test-mode-environments', 'dsh-test-mode-assets', 'dsh-test-mode-cases', 'dsh-test-mode-versions'].includes(entry.def.id)), '顶层视图为基础配置/资产库/用例/版本', registered.map((entry) => entry.def.id).join(','))
+check(registered.length === 5, `测试模式会话注册 5 个视图(实际 ${registered.length})`, registered.map((entry) => entry.def.id).join(','))
+check(registered.every((entry) => ['dsh-test-mode-environments', 'dsh-test-mode-assets', 'dsh-test-mode-cases', 'dsh-test-mode-reports', 'dsh-test-mode-versions'].includes(entry.def.id)), '顶层视图为基础配置/资产库/用例/报告/版本', registered.map((entry) => entry.def.id).join(','))
 await renderProbe('standard')
 check(registered.length === 0, '非测试模式会话注销全部视图', registered.map((entry) => entry.def.id).join(','))
 await renderProbe('dsh-test-mode')
-check(registered.length === 4, '切回测试模式会话重新注册 4 个视图', registered.map((entry) => entry.def.id).join(','))
+check(registered.length === 5, '切回测试模式会话重新注册 5 个视图', registered.map((entry) => entry.def.id).join(','))
 
 const viewProps = {
   sessionId: 's1',
@@ -516,7 +560,35 @@ console.log('\n=== 测试工作项 ===')
   check(rootEl.textContent.includes('关联缺陷') && rootEl.textContent.includes('自动化状态'), '新建工作项编辑器含自动化状态/关联缺陷', '')
 }
 
-// ── 4. 版本 ─────────────────────────────────────────────────────────────
+// ── 4. 报告 ─────────────────────────────────────────────────────────────
+console.log('\n=== 报告 ===')
+{
+  const rootEl = await renderView('dsh-test-mode-reports')
+  check(rootEl.textContent.includes('覆盖率') && rootEl.textContent.includes('通过率'), '报告看板显示覆盖/通过率', rootEl.textContent.slice(0, 160))
+  check(rootEl.textContent.includes('按模块') && rootEl.textContent.includes('登录'), '报告看板显示按模块统计', '')
+  check(rootEl.textContent.includes('失败资产 1') && rootEl.textContent.includes('500 boom'), '报告看板显示失败摘要', rootEl.textContent.slice(0, 260))
+  check(rootEl.textContent.includes('历史报告') && rootEl.textContent.includes('历史报告一'), '报告看板显示历史报告', '')
+  check(rootEl.querySelector('svg') !== null, '历史报告趋势图渲染', '')
+  const refreshButton = findButton(rootEl, '刷新统计')
+  check(refreshButton !== undefined, '报告看板有刷新统计按钮', '')
+  if (refreshButton) {
+    refreshButton.click()
+    await sleep(40)
+    check(rootEl.textContent.includes('统计已刷新'), '刷新统计后给出提示', rootEl.textContent.slice(0, 160))
+  }
+  const saveButton = findButton(rootEl, '保存为历史报告')
+  check(saveButton !== undefined, '报告看板可保存历史报告', '')
+  if (saveButton) {
+    saveButton.click()
+    await sleep(30)
+    check(rootEl.textContent.includes('保存为历史报告(会记录当前通过/失败状态'), '保存历史报告弹出命名确认', rootEl.textContent.slice(-200))
+    const cancel = findButton(rootEl, '取消')
+    cancel?.click()
+    await sleep(20)
+  }
+}
+
+// ── 5. 版本 ─────────────────────────────────────────────────────────────
 console.log('\n=== 版本 ===')
 {
   const rootEl = await renderView('dsh-test-mode-versions')

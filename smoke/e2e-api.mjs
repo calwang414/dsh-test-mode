@@ -1483,6 +1483,53 @@ await api('DELETE', `/api/assets/${notContainsAsset.body.asset.id}`, undefined, 
 await api('DELETE', `/api/assets/${inAsset.body.asset.id}`, undefined, { workspaceId })
 await api('DELETE', `/api/cases/${pendingSecurityItem.body.case.id}`, undefined, { workspaceId })
 
+// ── 5.14 固定报告:统计快照 / 历史报告 / 自动刷新 ──────────────────────
+console.log('\n=== 固定报告 ===')
+const repPass = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '报告测试', name: '报告通过资产', baseUrl,
+  request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] },
+})
+const repFail = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '报告测试', name: '报告失败资产', baseUrl,
+  request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 500 }] },
+})
+const repUntested = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '报告测试', name: '报告未测资产', baseUrl,
+  request: { method: 'GET', url: '/api/me' },
+})
+await api('POST', '/api/assets/run', { workspaceId, assetId: repPass.body.asset.id })
+await api('POST', '/api/assets/run', { workspaceId, assetId: repFail.body.asset.id })
+const latestRefresh = await api('POST', '/api/reports/latest/refresh', { workspaceId })
+const latestReport = latestRefresh.body.report
+check(latestReport?.schemaVersion === 1 && latestReport.coverage.assetsTotal >= 3, 'latest report has coverage stats', JSON.stringify(latestReport?.coverage))
+check(latestReport.coverage.failed >= 1 && latestReport.coverage.untested >= 1, 'latest report counts failed/untested', JSON.stringify(latestReport?.coverage))
+const failedItem = latestReport.failures?.items?.[0]
+check(failedItem?.assetId === repFail.body.asset.id && typeof failedItem.error === 'string', 'latest report stores failure name + error summary', JSON.stringify(failedItem))
+const latestPath = join(workspacePath, 'test-mode/reports/latest.json')
+const latestRaw = await readFile(latestPath, 'utf8')
+const latestFile = JSON.parse(latestRaw)
+check(Buffer.byteLength(latestRaw) < 50_000, 'latest report file is small (stats only)', `${Buffer.byteLength(latestRaw)} bytes`)
+check(!('results' in latestFile) && !('steps' in latestFile) && !('request' in latestFile) && !('response' in latestFile), 'latest report stores no request/response/steps', Object.keys(latestFile).join(','))
+check(latestFile.failures.items.every((item) => !('assertions' in item) && !('body' in item)), 'failure items contain no bodies', JSON.stringify(latestFile.failures.items[0]))
+const previousGeneratedAt = latestFile.generatedAt
+await new Promise((resolve) => setTimeout(resolve, 10))
+await api('POST', '/api/assets/run', { workspaceId, assetId: repPass.body.asset.id })
+const autoLatest = await api('GET', '/api/reports/latest', undefined, { workspaceId })
+check(autoLatest.body.report.trigger === 'asset' && autoLatest.body.report.generatedAt !== previousGeneratedAt, 'asset run auto-refreshes latest report', JSON.stringify({ trigger: autoLatest.body.report.trigger, at: autoLatest.body.report.generatedAt }))
+const historySave = await api('POST', '/api/reports/history', { workspaceId, name: '带失败的快照' })
+check(historySave.status === 200 && historySave.body.report?.status === 'failed' && historySave.body.report?.coverage?.failed >= 1, 'save history report anytime (even with failures)', JSON.stringify(historySave.body.report?.coverage))
+const historyList = await api('GET', '/api/reports/history', undefined, { workspaceId })
+check(historyList.body.reports.some((item) => item.id === historySave.body.report.id), 'history report listed', JSON.stringify(historyList.body.reports.map((item) => item.name)))
+const historyRead = await api('GET', `/api/reports/history/${historySave.body.report.id}`, undefined, { workspaceId })
+check(historyRead.status === 200 && historyRead.body.report?.name === '带失败的快照', 'read history report', '')
+const legacyReports = await api('GET', '/api/reports', undefined, { workspaceId })
+check(!(legacyReports.body.reports ?? []).some((item) => item.id === 'latest' || item.id === 'history'), 'legacy report list excludes latest/history', JSON.stringify(legacyReports.body.reports?.map((item) => item.id)))
+const historyDelete = await api('DELETE', `/api/reports/history/${historySave.body.report.id}`, undefined, { workspaceId })
+check(historyDelete.status === 200, 'delete history report', '')
+for (const id of [repPass.body.asset.id, repFail.body.asset.id, repUntested.body.asset.id]) {
+  await api('DELETE', `/api/assets/${id}`, undefined, { workspaceId })
+}
+
 // ── 6. 落盘检查 ──────────────────────────────────────────────────────────
 const diskFiles = await readdir(join(workspacePath, 'test-mode'), { recursive: true })
 console.log('\n=== 落盘 ===')
