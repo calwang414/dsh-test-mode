@@ -1,0 +1,9 @@
+version: 1
+metadata:
+  key: api-security-testing
+interface:
+  display_name: "API 安全测试"
+  short_description: "依据输入证据进行API 安全测试分析与验证准备"
+  default_prompt: "使用 api-security-testing 技能，根据已提供证据开展分析，并明确假设、缺口和验证边界。"
+policy:
+  allow_implicit_invocation: true

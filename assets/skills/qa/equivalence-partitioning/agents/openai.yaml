@@ -1,0 +1,9 @@
+version: 1
+metadata:
+  key: "equivalence-partitioning"
+interface:
+  display_name: "等价类划分测试设计"
+  short_description: "依据已提供证据设计等价类划分测试设计，明确来源、缺口与尚未执行的验证。"
+  default_prompt: "Use the equivalence-partitioning skill to produce EP-## findings without claiming execution."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,9 @@
+version: 1
+metadata:
+  key: "api-negative-testing"
+interface:
+  display_name: "API 负向测试"
+  short_description: "依据已提供证据设计API 负向测试，明确来源、缺口与尚未执行的验证。"
+  default_prompt: "Use the api-negative-testing skill to produce ANT-## findings without claiming execution."
+policy:
+  allow_implicit_invocation: true

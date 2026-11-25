@@ -1,0 +1,9 @@
+version: 1
+metadata:
+  key: "boundary-value-testing"
+interface:
+  display_name: "边界值测试设计"
+  short_description: "依据已提供证据设计边界值测试设计，明确来源、缺口与尚未执行的验证。"
+  default_prompt: "Use the boundary-value-testing skill to produce BVT-## findings without claiming execution."
+policy:
+  allow_implicit_invocation: true
