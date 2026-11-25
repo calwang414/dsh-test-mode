@@ -1381,6 +1381,62 @@ check(versionCompare2.status === 200 && versionCompare2.body.hasPrevious === tru
 const deletedVersion = await api('DELETE', `/api/versions/${versionSaved2.body.version.id}`, undefined, { workspaceId })
 check(deletedVersion.status === 200, 'delete version', '')
 
+// ── 安全回归:安全资产软校验 / 脚手架 / 版本安全门禁 ──────────────────
+const secSource = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '资产测试', name: '安全脚手架源', baseUrl,
+  request: { method: 'GET', url: '/api/orders/123', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] },
+})
+check(secSource.status === 200, 'create security scaffold source', JSON.stringify(secSource.body.message))
+const secDry = await api('POST', '/api/security/scaffold', { workspaceId, assetIds: [secSource.body.asset.id] })
+check(secDry.status === 200 && secDry.body.dryRun === true && secDry.body.summary.assets >= 3 && secDry.body.summary.workItems === 1, 'security scaffold dry-run plan', JSON.stringify(secDry.body.summary))
+const secApply = await api('POST', '/api/security/scaffold', { workspaceId, assetIds: [secSource.body.asset.id], apply: true })
+check(secApply.status === 200 && secApply.body.created?.assets >= 3 && secApply.body.created?.workItems === 1, 'security scaffold applies', JSON.stringify(secApply.body.created))
+const secWorkItemId = secApply.body.plan.workItems[0]?.id
+const secWorkItem = await api('GET', `/api/cases/${secWorkItemId}`, undefined, { workspaceId })
+check(secWorkItem.body.case?.type === 'security' && secWorkItem.body.case.assets.length >= 3, 'security regression work item generated', JSON.stringify({ type: secWorkItem.body.case?.type, assets: secWorkItem.body.case?.assets?.length }))
+const secRun = await api('POST', `/api/cases/${secWorkItemId}/run`, { workspaceId })
+check(secRun.status === 200 && secRun.body.result.summary.failed === 0, 'security regression assets pass (4xx, no leak)', JSON.stringify(secRun.body.result?.results?.map((item) => [item.name, item.pass, item.error])))
+const secRunCase = await api('GET', `/api/cases/${secWorkItemId}`, undefined, { workspaceId })
+check(secRunCase.body.case.result === 'passed', 'security work item result passed', secRunCase.body.case.result)
+const secDryAgain = await api('POST', '/api/security/scaffold', { workspaceId, assetIds: [secSource.body.asset.id] })
+check(secDryAgain.body.summary.assets === 0 && secDryAgain.body.summary.skipped >= 1, 'security scaffold is idempotent', JSON.stringify(secDryAgain.body.summary))
+
+// 安全资产软校验:期望 2xx 时提示
+const badSecurityAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '安全', name: '错误安全资产', baseUrl,
+  security: { category: 'auth' },
+  request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] },
+})
+check((badSecurityAsset.body.warnings ?? []).some((item) => item.includes('2xx')), 'security asset warns on 2xx-only assertion', JSON.stringify(badSecurityAsset.body.warnings))
+
+// 断言操作符:not_contains / in
+const notContainsAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '资产测试', name: 'not_contains 断言', baseUrl,
+  request: { method: 'GET', url: '/api/error', assertions: [{ type: 'status', operator: 'eq', expected: 500 }, { type: 'body', operator: 'not_contains', expected: 'boom' }] },
+})
+const notContainsRun = await api('POST', '/api/assets/run', { workspaceId, assetId: notContainsAsset.body.asset.id })
+check(notContainsRun.body.result.pass === false, 'not_contains assertion fails when body contains value', JSON.stringify(notContainsRun.body.result?.assertions))
+const inAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '资产测试', name: 'in 断言', baseUrl,
+  request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'in', expected: [200, 201] }] },
+})
+const inRun = await api('POST', '/api/assets/run', { workspaceId, assetId: inAsset.body.asset.id })
+check(inRun.body.result.pass === true, 'in assertion passes for listed status', JSON.stringify(inRun.body.result?.assertions))
+
+// 版本安全门禁:安全类工作项未通过时拒绝保存
+const pendingSecurityItem = await api('POST', '/api/cases', { workspaceId, name: '未通过安全项', type: 'security', priority: 'high', automation: 'auto', result: 'not_run', assets: [] })
+const securityGateBlocked = await api('POST', '/api/versions', { workspaceId, name: '安全门禁版本', requireSecurity: true })
+check(securityGateBlocked.status === 409 && (securityGateBlocked.body.code === 'security' || securityGateBlocked.body.message.includes('安全')), 'version security gate blocks failing security items', JSON.stringify(securityGateBlocked.body))
+
+// 清理安全脚手架数据
+for (const item of secApply.body.plan.assets) await api('DELETE', `/api/assets/${item.id}`, undefined, { workspaceId })
+await api('DELETE', `/api/cases/${secWorkItemId}`, undefined, { workspaceId })
+await api('DELETE', `/api/assets/${secSource.body.asset.id}`, undefined, { workspaceId })
+await api('DELETE', `/api/assets/${badSecurityAsset.body.asset.id}`, undefined, { workspaceId })
+await api('DELETE', `/api/assets/${notContainsAsset.body.asset.id}`, undefined, { workspaceId })
+await api('DELETE', `/api/assets/${inAsset.body.asset.id}`, undefined, { workspaceId })
+await api('DELETE', `/api/cases/${pendingSecurityItem.body.case.id}`, undefined, { workspaceId })
+
 // ── 6. 落盘检查 ──────────────────────────────────────────────────────────
 const diskFiles = await readdir(join(workspacePath, 'test-mode'), { recursive: true })
 console.log('\n=== 落盘 ===')

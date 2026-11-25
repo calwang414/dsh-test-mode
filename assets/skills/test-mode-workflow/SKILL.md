@@ -106,6 +106,15 @@ description: Detailed reference for test-mode assets and test work items - JSON 
 | `POST /api/import/openapi` | 导入 OpenAPI 3.x JSON，生成/更新接口资产来源 |
 | `GET /api/dbdata` | 查看参考表与样例 |
 
+## 3.5 安全专用资产
+
+- 仍是 api/ui 资产,用 `security: { category: 'auth'|'not-found'|'leak'|'idor', sourceAssetId }` 标记;
+  `module` 或 `tags` 含「安全/security」也会被识别;
+- 断言期望 4xx(401/403/404)、错误体不泄露(stack/SQL/goroutine/panic);期望 2xx 会收到软提示;
+- 脚手架:`POST /api/security/scaffold { assetIds, includeIdor?, apply? }`(默认 dry-run),
+  生成无凭证、不存在 ID、错误信息泄露(可选越权)资产 + 一个安全回归工作项;
+- 越权资产需配置 `OTHER_ID`;只用于授权的测试环境,不执行扫描/攻击。
+
 ## 4. 断言与变量
 
 - 断言类型：`status`（状态码）、`header`（响应头）、`body`（响应文本）、`json`（`$.a.b[0].c`）、`duration`（耗时上限）；

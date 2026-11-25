@@ -33,6 +33,13 @@ description: Route security testing work in test-mode - enumerate auth/authz/inp
 5. **敏感数据**：响应不回显密码/token/secret；
 6. **方法/参数**：未声明方法、重复参数、批量赋值（mass assignment）不越权。
 
+## 脚手架（快速铺开）
+
+- `POST /api/security/scaffold { assetIds, apply? }`：对选中接口资产生成安全专用资产
+  （无凭证、不存在 ID、错误信息不泄露；`includeIdor: true` 追加越权模板）与一个安全回归工作项；
+  默认 dry-run，确认后 `apply: true` 写入；可重复调用（已存在的会跳过）；
+- 越权资产需配置 `OTHER_ID`；生成后逐个执行验证，失败先区分「真漏洞」与「断言/凭据过期」。
+
 ## 执行顺序
 
 1. 准备多套身份（匿名/普通/管理员）的会话变量；

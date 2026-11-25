@@ -90,6 +90,7 @@ const state = {
       request: { name: 'me', method: 'GET', url: '/api/me', headers: {}, query: {}, body: '', assertions: [{ type: 'status', operator: 'eq', expected: 200 }], extract: [] },
       status: 'failed', stats: { runs: 1, passed: 0, failed: 1, totalDurationMs: 1 },
       lastRun: { pass: false, at: '2026-01-02T00:00:00Z' },
+      securityWarnings: ['状态断言只期望 2xx,安全场景通常应期望 4xx(401/403/404)'],
     },
     {
       id: 'ui:login-flow', kind: 'ui', type: 'flow', module: '登录', name: '登录流程', tags: [],
@@ -133,6 +134,13 @@ function makeFetchStub() {
     state.calls.push(`${method} ${u}`)
     if (u.includes('/api/assets/pending')) return json({ ok: true, assets: state.assets.filter((asset) => asset.status !== 'solid'), counts: state.pending })
     if (u.includes('/api/assets/granularity-report')) return json({ ok: true, path: 'test-mode/granularity-report.md', summary: { total: 1, warningCount: 1 } })
+    if (u.includes('/api/security/scaffold')) {
+      const body = JSON.parse(init.body)
+      if (body.apply === true) {
+        return json({ ok: true, dryRun: false, created: { assets: 2, workItems: 1 }, summary: { assets: 2, workItems: 1, skipped: 0, warnings: 0 }, plan: { assets: [], workItems: [], skipped: [], warnings: [] } })
+      }
+      return json({ ok: true, dryRun: true, summary: { assets: 2, workItems: 1, skipped: 0, warnings: 0 }, plan: { assets: [{ id: 'api:security.x.auth-missing', name: '安全-登录-无凭证' }, { id: 'api:security.x.not-found', name: '安全-登录-不存在ID' }], workItems: [{ id: 'case-sec', name: '安全回归-登录-登录接口' }], skipped: [], warnings: [] } })
+    }
     if (u.includes('/api/assets/run-batch')) {
       const body = JSON.parse(init.body)
       const results = (body.assetIds ?? []).map((assetId) => {
@@ -364,10 +372,24 @@ console.log('\n=== 资产库 ===')
   statusChip('failed').click()
   await sleep(40)
   check(rootEl.textContent.includes('获取用户') && !rootEl.textContent.includes('登录接口'), '点击「失败」只显示失败资产', rootEl.textContent.slice(0, 200))
+  check(rootEl.textContent.includes('安全提示') && rootEl.textContent.includes('2xx'), '安全资产显示软校验提示', rootEl.textContent.slice(0, 260))
   check(rootEl.textContent.includes('筛选出 1 项'), '状态筛选显示命中数量', '')
   statusChip('failed').click()
   await sleep(40)
   check(!rootEl.textContent.includes('筛选出'), '再次点击取消状态筛选', '')
+  // 生成安全回归:dry-run → 确认 → apply
+  const scaffoldButton = findButton(rootEl, '生成安全回归')
+  check(scaffoldButton !== undefined, '接口资产提供「生成安全回归」', '')
+  if (scaffoldButton) {
+    scaffoldButton.click()
+    await sleep(60)
+    check(rootEl.textContent.includes('生成安全回归:') && rootEl.textContent.includes('安全-登录-无凭证'), '生成安全回归先展示计划确认', rootEl.textContent.slice(-260))
+    const generateButton = [...rootEl.querySelectorAll('button')].find((button) => button.textContent.trim() === '生成')
+    check(generateButton !== undefined, '安全回归确认按钮存在', '')
+    generateButton?.click()
+    await sleep(80)
+    check(rootEl.textContent.includes('安全回归已生成'), '确认后生成安全回归并提示', rootEl.textContent.slice(-200))
+  }
   // 恢复选中已固化的登录接口(筛选后选中项变为失败资产)
   moduleButton('登录').click()
   await sleep(30)
@@ -463,6 +485,9 @@ console.log('\n=== 版本 ===')
 {
   const rootEl = await renderView('dsh-test-mode-versions')
   check(rootEl.textContent.includes('待测资产 2') && rootEl.textContent.includes('版本'), '版本页显示待测资产计数', rootEl.textContent.slice(0, 160))
+  check(rootEl.textContent.includes('要求安全测试通过'), '版本页提供安全门禁开关', '')
+  const gateCheckbox = [...rootEl.querySelectorAll('input[type="checkbox"]')].find((input) => input.parentElement?.textContent.includes('要求安全测试通过'))
+  check(gateCheckbox !== undefined, '安全门禁复选框可交互', '')
   const saveButton = findButton(rootEl, '保存为版本')
   check(saveButton !== undefined, '版本页有「保存为版本」按钮(由服务端校验)', JSON.stringify(saveButton?.disabled))
   const runButton = findButton(rootEl, '发起全量系统测试')
