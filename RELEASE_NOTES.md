@@ -1,28 +1,27 @@
-# dsh-test-mode v0.10.1
+# dsh-test-mode v0.11.0
 
-**修复旧模型迁移覆盖新模型用例 `assets[]` 的数据丢失问题。**
+**UI 资产粒度软校验 + 整改清单(不拒绝保存、不改数据)。**
 
-## 修复
+## 新增
 
-- **合并而非覆盖**:迁移只从 legacy `steps[].requestRef/uiRef` 推导引用;
-  用例已有 `assets[]` 时原样保留(含 `data`/`skip`),仅追加尚不存在的引用,
-  不再把新模型用例清空为 `[]`;
-- **默认 dry-run**:`POST /api/migrate/assets` 默认只计算不写盘并返回 hint;
-  必须显式 `{"apply": true}` 才写入;
-- **写盘前自动备份**:`cases/` 复制到 `backup-assets-migration-<时间戳>/`,
-  路径记录在 manifest `backup` 字段;
-- **一致性守卫**:写盘前校验所有用例的资产引用总数不减少,写盘后从磁盘复核,
-  不一致直接抛错(备份可回滚);manifest 增加 `caseRefsBefore`/`caseRefsAfter`、
-  `casesPreserved`、`wouldWrite`;
-- 不再对保留的用例写入 `migratedAt`(避免误标"已迁移")。
+- **粒度约定**:`component` 应为单页面、≤ 6 步、≥ 1 条断言;`flow` 应跨页面或步骤较多;
+- **软校验**:创建/更新/执行 UI 资产时返回 `warnings`(跨页、步数过多、无断言、流程规模过小),
+  不拒绝保存;列表/详情附带 `granularity`(页数/步数/断言数/告警/建议);
+- **新增接口**:
+  - `GET /api/assets/granularity` — 汇总(组件/流程/需整改数)与逐项指标;
+  - `POST /api/assets/granularity-report` — 生成 `test-mode/granularity-report.md` 整改清单;
+- **界面**:资产库树行显示 ⚠,详情显示「组件 3 页 / 17 步 / 7 断言」徽章与粒度提示/建议;
+  工具栏新增「生成粒度整改清单」按钮(生成后提示路径与需整改数);
+- 预设与技能(`test-mode-workflow`、`ui-e2e-assets`)同步粒度约定;
+- 已对 GoVue 工作区生成整改清单:`test-mode/granularity-report.md`
+  (116 个 UI 资产 = 76 组件 + 40 流程,73 个需整改)。
 
 ## 测试
 
-- e2e **269**:新增 dry-run 默认/无写入、apply 后备份存在、引用数与磁盘一致、
-  新建新模型用例二次迁移 assets+data 保留、旧 steps 用例正常推导;
-- 渲染 **72**、插件 **8**、技能 **32** 全绿。
+- e2e **274**(新增粒度告警/汇总/整改清单断言)、渲染 **76**(⚠/提示/按钮)、
+  插件 **8**、技能 **32** 全绿。
 
 ## 升级
 
-重启 DeepSeek Harness(桌面版完全退出再打开)。历史已被清空的用例不会被自动
-恢复;需要时从 `backup-assets-migration-*` 或会话记录手工找回后重新执行。
+重启 DeepSeek Harness(桌面版完全退出再打开)。现有资产不会被自动修改,
+先用整改清单人工/让智能体拆分或改类型。

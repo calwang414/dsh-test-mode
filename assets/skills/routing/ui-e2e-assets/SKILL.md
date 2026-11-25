@@ -10,6 +10,7 @@ description: Route UI and e2e testing work in test-mode - write UI component/flo
 ## 必读约束
 
 - 两类 UI 资产：`component`（单页面、少量动作+断言，锁组件行为）、`flow`（多步跨页，跑业务流程）；
+- 组件粒度软校验：component 应单页面、≤6 步、≥1 断言；超限会有 `warnings`，优先拆分或改为 flow（"生成粒度整改清单" 可列出全部待整改项）；
 - 执行引擎是插件内置 Playwright + 系统 Chrome；**不要用会话浏览器工具**探测或执行；
 - 写步骤前必须 `POST /api/ui/probe {url}` 获取真实可交互元素，禁止猜 selector；
 - 元素优先入元素库（`ui/elements.json` 的 key），步骤用 `element: "<key>"`；

@@ -1237,6 +1237,29 @@ check(typeof assetList.body.summary?.untested === 'number', 'asset summary expos
 const pendingList = await api('GET', '/api/assets/pending', undefined, { workspaceId })
 check(pendingList.status === 200 && pendingList.body.counts.pending >= 1, 'pending assets query', JSON.stringify(pendingList.body.counts))
 
+// UI 资产粒度软校验:组件跨页/步骤过多/无断言 → warnings(不拒绝保存)
+const uiComponentAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'ui', type: 'component', module: '资产测试', name: '超粒度组件',
+  steps: [
+    { kind: 'open', url: '/login' }, { kind: 'click', element: 'login-btn' },
+    { kind: 'open', url: '/home' }, { kind: 'click', element: 'nav-a' },
+    { kind: 'click', element: 'nav-b' }, { kind: 'click', element: 'nav-c' }, { kind: 'click', element: 'nav-d' },
+  ],
+})
+const uiWarnings = uiComponentAsset.body.warnings ?? []
+check(uiComponentAsset.status === 200 && uiWarnings.some((item) => item.includes('步骤')) && uiWarnings.some((item) => item.includes('页面')) && uiWarnings.some((item) => item.includes('断言')), 'UI component granularity warnings', JSON.stringify(uiWarnings))
+const uiAssetId = uiComponentAsset.body.asset.id
+const uiAssetsList = await api('GET', '/api/assets', undefined, { workspaceId, kind: 'ui' })
+const uiRow = uiAssetsList.body.assets.find((asset) => asset.id === uiAssetId)
+check(uiRow?.granularity?.type === 'component' && uiRow.granularity.pages === 2 && uiRow.granularity.warnings.length >= 3, 'asset list exposes UI granularity', JSON.stringify(uiRow?.granularity))
+const granularitySummary = await api('GET', '/api/assets/granularity', undefined, { workspaceId })
+check(granularitySummary.status === 200 && granularitySummary.body.summary.warningCount >= 1 && granularitySummary.body.items.some((item) => item.id === uiAssetId), 'granularity summary endpoint', JSON.stringify(granularitySummary.body.summary))
+const granularityReport = await api('POST', '/api/assets/granularity-report', { workspaceId })
+check(granularityReport.status === 200 && granularityReport.body.path === 'test-mode/granularity-report.md' && granularityReport.body.summary.warningCount >= 1, 'granularity report generated', JSON.stringify(granularityReport.body))
+const granularityText = await readFile(join(workspacePath, 'test-mode/granularity-report.md'), 'utf8')
+check(granularityText.includes('UI 资产粒度整改清单') && granularityText.includes('超粒度组件'), 'granularity report contains component', '')
+await api('DELETE', `/api/assets/${uiAssetId}`, undefined, { workspaceId })
+
 // 创建资产:首次通过即固化
 const assetCreate = await api('POST', '/api/assets', { workspaceId, kind: 'api', module: '资产测试', name: '健康检查', baseUrl, request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] } })
 check(assetCreate.status === 200 && assetCreate.body.asset.status === 'untested', 'create api asset', JSON.stringify(assetCreate.body.asset?.id))

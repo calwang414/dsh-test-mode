@@ -61,6 +61,9 @@ description: Detailed reference for test-mode assets and test work items - JSON 
 - `type: "component"`：单页面、少量动作 + 断言（锁组件行为）；`type: "flow"`：多步、跨页面业务流程；
 - 步骤 `kind`：`open/click/type/press/assert_text/assert_url/assert_title/assert_element/eval/wait/screenshot`；
 - 元素优先用元素库 key（`element: "<key>"`），元素库存 `ui/elements.json`：`{ key, selector, page, description }`；
+- **粒度约定（软校验）**：`component` 单页面、≤ 6 步、≥ 1 条断言；跨页/步数过多/无断言时 API 返回 `warnings`
+  （不拒绝保存，建议拆分或改为 `flow`）；`flow` 应跨页面或步骤较多。整改清单：
+  `POST /api/assets/granularity-report` → `test-mode/granularity-report.md`；
 - 执行引擎：插件内置 Playwright + 系统 Chrome（headless），**不要用会话浏览器工具**。
 
 ## 2. 测试工作项 `cases/<id>.json`

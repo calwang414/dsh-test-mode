@@ -95,6 +95,7 @@ const state = {
       id: 'ui:login-flow', kind: 'ui', type: 'flow', module: '登录', name: '登录流程', tags: [],
       steps: [{ kind: 'open', url: 'http://x/login' }],
       status: 'untested',
+      granularity: { type: 'flow', pages: 1, steps: 1, assertions: 0, warnings: ['没有断言(至少 1 条 assert_*)'], suggestion: '补充断言后再执行' },
     },
   ],
   cases: [
@@ -131,6 +132,7 @@ function makeFetchStub() {
     const json = (payload, status = 200) => ({ ok: status < 400, status, json: async () => payload, text: async () => JSON.stringify(payload) })
     state.calls.push(`${method} ${u}`)
     if (u.includes('/api/assets/pending')) return json({ ok: true, assets: state.assets.filter((asset) => asset.status !== 'solid'), counts: state.pending })
+    if (u.includes('/api/assets/granularity-report')) return json({ ok: true, path: 'test-mode/granularity-report.md', summary: { total: 1, warningCount: 1 } })
     if (u.includes('/api/assets/run-batch')) {
       const body = JSON.parse(init.body)
       const results = (body.assetIds ?? []).map((assetId) => {
@@ -386,6 +388,15 @@ console.log('\n=== 资产库 ===')
     uiTab.click()
     await sleep(40)
     check(rootEl.textContent.includes('登录流程') && rootEl.textContent.includes('未测试'), 'UI 流程资产显示未测试', rootEl.textContent.slice(0, 160))
+    check(rootEl.textContent.includes('⚠') && rootEl.textContent.includes('没有断言'), 'UI 资产显示粒度告警', rootEl.textContent.slice(0, 200))
+    check(rootEl.textContent.includes('粒度提示') && rootEl.textContent.includes('补充断言后再执行'), '详情显示粒度提示与建议', '')
+    const reportButton = findButton(rootEl, '生成粒度整改清单')
+    check(reportButton !== undefined, '资产库提供粒度整改清单入口', '')
+    if (reportButton) {
+      reportButton.click()
+      await sleep(60)
+      check(rootEl.textContent.includes('整改清单已生成'), '生成整改清单后提示路径', rootEl.textContent.slice(-160))
+    }
   }
   const createButton = findButton(rootEl, '+ 新建资产')
   check(createButton !== undefined, '资产库有新建入口', '')

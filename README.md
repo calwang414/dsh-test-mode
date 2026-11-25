@@ -95,6 +95,7 @@ dsh-test-mode/
 - **内置工作流技能**:`test-mode-workflow`(资产/工作项字段、JSON 示例、断言/环境/数据工厂、UI 定位与等待、失败归因详情)、`api-testing-assets` / `ui-e2e-assets` / `performance-testing-assets` / `security-testing-assets`(按四类工作项路由到对应方法);常驻提示词只保留契约与规则(约 4.2k 字),细节按需加载;
 - **内置第三方测试技能(随包发布,无需下载)**:来自 [awesome-qa-skills](https://github.com/naodeng/awesome-qa-skills)(PolyForm Noncommercial 1.0.0,见 `assets/skills/qa/NOTICE.md`):`test-case-writing`、`test-case-reviewer`、`equivalence-partitioning`、`boundary-value-testing`、`api-testing`、`api-negative-testing`、`ui-test-playwright`、`ui-test-selector-review`、`api-security-testing`、`performance-testing`;
 外部开源技能放到 `~/.dsh/test-mode-skills`、`<workspace>/.dsh/test-mode-skills` 或 `DSH_TEST_MODE_SKILLS` 指定目录即可被本插件会话加载,其他模式不可见;支持 `<name>/SKILL.md` 与 `<name>.md`(YAML frontmatter:name/description);
+- **UI 资产粒度软校验**:component 应单页面、≤6 步、≥1 条断言;跨页/步数过多/无断言时 API 返回 `warnings`(不拒绝保存);`GET /api/assets/granularity` 查看汇总,`POST /api/assets/granularity-report` 生成 `test-mode/granularity-report.md` 整改清单;
 - **测试工作项**:`cases/<id>.json`,按 `type` 分功能测试/e2e测试/性能测试/安全测试四类;字段:标题(name)、优先级(priority)、关联需求(requirement)、自动化状态(automation: manual/auto/partial)、结果(result: not_run/passed/failed/blocked/skipped)、关联缺陷(defects 票号/链接数组)、资产组合(assets);
 - **版本报告**:报告只有一种——版本;`POST /api/versions` 保存前校验所有资产已通过且无过期,版本默认保留、由用户手工删除;版本页可发起全量系统测试、对比与删除;
 - **搜索筛选**:用例视图支持关键字(名称/描述/标签)、优先级、状态、标签过滤;`archived` 状态默认折叠,可勾选「显示归档」;
