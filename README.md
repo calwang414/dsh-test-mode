@@ -90,6 +90,7 @@ dsh-test-mode/
 - **步骤数据覆盖(`data`)**:步骤可写 `data = { url?, body?, query?, headers? }` 覆盖所绑请求的数据(字段可省,未提供的回退请求配置);请求配置中的 mock 数据是**接口测试的参考示例**(API 列表执行时使用),用例步骤 data 覆盖它,且 **data 的字段结构必须对齐参考示例结构**(保存校验校验结构,提示词约束对齐示例);编辑器里 API 绑定步骤有数据覆盖编辑区(URL/Body/Query/Headers);
 - **执行用例**:`POST /api/cases/:id/run` — 按 `assets` 顺序执行资产,变量在资产间流动;通过/失败只更新资产状态与统计,不生成报告;
 - **测试资产**:`assets/api/<id>.json`、`assets/ui/<id>.json`(component/flow);首次执行成功即固化(solid),失败为 failed;配置变更后视为过期,需重跑;待测资产查询 `GET /api/assets/pending`,批量补测 `POST /api/assets/run-batch`;
+- **技能(按需加载,仅测试模式可见)**:自带 `plugin-testing`(动态 Cordis 插件测试三阶段契约);外部开源技能放到 `~/.dsh/test-mode-skills`、`<workspace>/.dsh/test-mode-skills` 或 `DSH_TEST_MODE_SKILLS` 指定目录即可被本插件会话加载,其他模式不可见;支持 `<name>/SKILL.md` 与 `<name>.md`(YAML frontmatter:name/description);
 - **测试工作项**:`cases/<id>.json`,按 `type` 分功能测试/e2e测试/性能测试/安全测试四类;字段:标题(name)、优先级(priority)、关联需求(requirement)、自动化状态(automation: manual/auto/partial)、结果(result: not_run/passed/failed/blocked/skipped)、关联缺陷(defects 票号/链接数组)、资产组合(assets);
 - **版本报告**:报告只有一种——版本;`POST /api/versions` 保存前校验所有资产已通过且无过期,版本默认保留、由用户手工删除;版本页可发起全量系统测试、对比与删除;
 - **搜索筛选**:用例视图支持关键字(名称/描述/标签)、优先级、状态、标签过滤;`archived` 状态默认折叠,可勾选「显示归档」;
