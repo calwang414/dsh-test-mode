@@ -80,6 +80,23 @@ function reportFixture() {
       { type: 'uiFlow', total: 0, passed: 0, failed: 0, stale: 0, untested: 0 },
     ],
     failures: { count: 1, shown: 1, items: [{ assetId: 'api:me', name: '获取用户', module: '用户', error: '500 boom' }] },
+    dimensions: {
+      breadth: { modulesTotal: 2, scopesTotal: 3, scopesCovered: 2, scopeCoverage: 0.667, typesCovered: 2, typeCoverage: 0.5, requirementLinked: 1, requirementTotal: 3, requirementCoverage: 0.333, tagsUsed: 1, tagLibrarySize: 2, tagCoverage: 0.5 },
+      depth: { assertionsTotal: 2, assertionPerAsset: 0.667, assertionPerWorkItem: 0.667, assetsWithNoAssertions: 1, negativeAssets: 0, negativeRatio: 0, e2eWorkItems: 1, avgAssetsPerWorkItem: 0.33, uiFlowAssets: 0, defectsTotal: 1, workItemsWithDefects: 1, defectsPerWorkItem: 0.33, rerunAssets: 1, rerunRatio: 0.33, automationRate: 0.67 },
+      quality: { passRate: 0.5, coverageRate: 0.667, freshnessRate: 0.333, staleRate: 0, untestedRate: 0.333, failedRate: 0.333, highPriorityFailed: 1, securityRate: 0, performanceRate: 0, historicalFailureRate: 0.33 },
+      health: [
+        { key: 'scopeBreadth', label: '模块广度', value: 67, raw: '2/3', formula: '有工作项覆盖的模块/集合 ÷ 全部模块/集合' },
+        { key: 'typeBreadth', label: '类型广度', value: 50, raw: '2/4', formula: '有工作项的测试类型数 ÷ 4' },
+        { key: 'assertionDepth', label: '断言深度', value: 17, raw: '0.667 条/资产', formula: '断言总数 ÷ 资产数,4 条/资产视为满分' },
+        { key: 'negativeDepth', label: '负向深度', value: 0, raw: '0%', formula: '负向/安全资产占比,20% 视为满分' },
+        { key: 'regressionHealth', label: '回归健康', value: 67, raw: '历史失败 1', formula: '1 - 曾失败资产 ÷ 总资产' },
+        { key: 'freshness', label: '新鲜度', value: 33, raw: '1/3', formula: '当前通过(未过期) ÷ 总资产' },
+      ],
+      byScope: [
+        { scope: '登录/认证', module: '登录', collection: '认证', totalAssets: 1, coveredAssets: 1, workItems: 2, functional: 1, e2e: 1, performance: 0, security: 0 },
+        { scope: '用户/用户接口', module: '用户', collection: '用户接口', totalAssets: 2, coveredAssets: 1, workItems: 1, functional: 1, e2e: 0, performance: 0, security: 0 },
+      ],
+    },
     workItems: {
       total: 3,
       summary: { passed: 1, failed: 1, not_run: 1, blocked: 0, skipped: 0 },
@@ -599,6 +616,9 @@ console.log('\n=== 报告 ===')
   check(rootEl.textContent.includes('按模块') && rootEl.textContent.includes('登录'), '报告看板显示按模块统计', '')
   check(rootEl.textContent.includes('失败资产 1') && rootEl.textContent.includes('500 boom'), '报告看板显示失败摘要', rootEl.textContent.slice(0, 260))
   check(rootEl.textContent.includes('资产状态') && rootEl.textContent.includes('按资产类型') && rootEl.textContent.includes('历史趋势'), '报告看板显示图表区', rootEl.textContent.slice(0, 320))
+  check(rootEl.textContent.includes('测试健康度') && rootEl.querySelector('polygon') !== null, '报告看板显示健康度雷达图', '')
+  check(rootEl.textContent.includes('覆盖广度') && rootEl.textContent.includes('测试深度') && rootEl.textContent.includes('测试质量'), '报告看板显示三维指标卡', rootEl.textContent.slice(0, 420))
+  check(rootEl.textContent.includes('覆盖热力图') && rootEl.textContent.includes('登录/认证'), '报告看板显示模块×类型热力图', rootEl.textContent.slice(0, 420))
   check(rootEl.querySelectorAll('svg').length >= 2, '报告看板渲染环形图/趋势图', String(rootEl.querySelectorAll('svg').length))
   check(rootEl.textContent.includes('测试工作项') && rootEl.textContent.includes('共 3 个'), '报告看板显示测试工作项分布', rootEl.textContent.slice(0, 320))
   const detailsButton = findButton(rootEl, '查看工作项明细')

@@ -159,7 +159,8 @@ description: Detailed reference for test-mode assets and test work items - JSON 
 - 需要留档时 `POST /api/reports/history {name}` 保存当前快照（允许带失败，记录当时状态）；
   `GET /api/reports/history` 列表，`GET/DELETE /api/reports/history/:id`；
 - 报告只存：覆盖率、通过率、按模块/按类型统计、失败资产名 + 错误摘要（最多 50 条、200 字），
-  以及测试工作项明细（名称/类型/结果/需求/标签/资产名/断言数）；
+  测试工作项明细（名称/类型/结果/需求/标签/资产名/断言数），以及广度/深度/质量维度
+  （模块集合覆盖、类型/需求/标签覆盖；断言密度/负向占比/资产数/缺陷/重试；通过/新鲜/高优失败/安全性能通过率）；
   **不要写请求体/响应体/步骤明细/截图**；
 - 版本与历史报告是两种语义：`POST /api/versions` 仍是全绿发布快照（所有资产 solid 且无过期），
   历史报告可随时保存。
