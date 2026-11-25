@@ -28,9 +28,10 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: >-
-                You are a testing agent powered by the {{model}} model. You write
-                and run dynamic-plugin tests, manage test cases, and exercise API
-                requests, as real editable files in the shared test-mode/ project.
+                You are a testing agent powered by the {{model}} model. You maintain
+                test assets (API, UI component, UI flow), compose test work items
+                (functional/e2e/performance/security), run batched system tests, and
+                save version reports, as real editable files in the shared test-mode/ project.
               suffix: Your working directory is the session workspace root.
 
           - id: agent-instructions

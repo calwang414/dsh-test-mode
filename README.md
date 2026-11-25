@@ -91,6 +91,7 @@ dsh-test-mode/
 - **执行用例**:`POST /api/cases/:id/run` — 按 `assets` 顺序执行资产,变量在资产间流动;通过/失败只更新资产状态与统计,不生成报告;
 - **测试资产**:`assets/api/<id>.json`、`assets/ui/<id>.json`(component/flow);首次执行成功即固化(solid),失败为 failed;配置变更后视为过期,需重跑;待测资产查询 `GET /api/assets/pending`,批量补测 `POST /api/assets/run-batch`;
 - **技能(按需加载,仅测试模式可见)**:自带 `plugin-testing`(动态 Cordis 插件测试三阶段契约);
+- **内置工作流技能**:`test-mode-workflow`(资产/工作项字段、JSON 示例、断言/环境/数据工厂、UI 定位与等待、失败归因详情)、`api-testing-assets` / `ui-e2e-assets` / `performance-testing-assets` / `security-testing-assets`(按四类工作项路由到对应方法);常驻提示词只保留契约与规则(约 4.2k 字),细节按需加载;
 - **内置第三方测试技能(随包发布,无需下载)**:来自 [awesome-qa-skills](https://github.com/naodeng/awesome-qa-skills)(PolyForm Noncommercial 1.0.0,见 `assets/skills/qa/NOTICE.md`):`test-case-writing`、`test-case-reviewer`、`equivalence-partitioning`、`boundary-value-testing`、`api-testing`、`api-negative-testing`、`ui-test-playwright`、`ui-test-selector-review`、`api-security-testing`、`performance-testing`;
 外部开源技能放到 `~/.dsh/test-mode-skills`、`<workspace>/.dsh/test-mode-skills` 或 `DSH_TEST_MODE_SKILLS` 指定目录即可被本插件会话加载,其他模式不可见;支持 `<name>/SKILL.md` 与 `<name>.md`(YAML frontmatter:name/description);
 - **测试工作项**:`cases/<id>.json`,按 `type` 分功能测试/e2e测试/性能测试/安全测试四类;字段:标题(name)、优先级(priority)、关联需求(requirement)、自动化状态(automation: manual/auto/partial)、结果(result: not_run/passed/failed/blocked/skipped)、关联缺陷(defects 票号/链接数组)、资产组合(assets);

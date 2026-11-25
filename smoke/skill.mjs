@@ -63,6 +63,10 @@ await check(() => assert.ok(names.includes('plugin-testing')), 'bundled 技能 p
 const builtInQa = ['test-case-writing', 'test-case-reviewer', 'equivalence-partitioning', 'boundary-value-testing',
   'api-testing', 'api-negative-testing', 'ui-test-playwright', 'ui-test-selector-review', 'api-security-testing', 'performance-testing']
 for (const name of builtInQa) await check(() => assert.ok(names.includes(name)), `内置 QA 技能 ${name} 可见`)
+const builtInWorkflow = ['test-mode-workflow', 'api-testing-assets', 'ui-e2e-assets', 'performance-testing-assets', 'security-testing-assets']
+for (const name of builtInWorkflow) await check(() => assert.ok(names.includes(name)), `内置工作流技能 ${name} 可见`)
+const workflowSkill = await provider.get(candidates.find((item) => item.name === 'test-mode-workflow'))
+await check(() => assert.ok(workflowSkill.content.includes('接口资产') && workflowSkill.content.includes('测试工作项')), '工作流技能正文加载')
 const qaSkill = await provider.get(candidates.find((item) => item.name === 'test-case-writing'))
 await check(() => assert.ok(qaSkill.content.includes('测试用例编写')), '内置 QA 技能正文加载')
 await check(() => assert.ok(join(qaSkill.resourceBase?.path ?? '', 'prompts').endsWith('prompts')), '内置 QA 技能 resourceBase 指向自身目录')

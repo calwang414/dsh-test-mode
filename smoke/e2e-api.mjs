@@ -1162,6 +1162,16 @@ console.log('\n=== 预设 prompt 段占位符 ===')
   const patchSource = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
   const patchTokens = [...patchSource.matchAll(/\{\{[^}]*\}\}/g)].map((match) => match[0])
   check(patchTokens.every((token) => token === '{{model}}'), '补丁内 prompt 占位符仅使用已注册的 {{model}}', patchTokens.join(','))
+
+  // 常驻提示词瘦身回归:不得残留旧链路/旧术语,且必须引用按需技能。
+  const presetSource = await readFile(new URL('../lib/preset.js', import.meta.url), 'utf8')
+  const presetLines = presetSource.split('\n').filter((line) => line.trim().startsWith('"')).join('\n')
+  for (const stale of ['run-collection', '/api/ui/run', '/api/plans', '智能绑定接口']) {
+    check(!presetLines.includes(stale), `常驻提示词不含旧链路/旧术语:${stale}`, '')
+  }
+  check(!presetLines.includes('用例'), '常驻提示词统一使用「测试工作项」', '')
+  check(presetLines.includes('test-mode-workflow') && presetLines.includes('api-testing-assets'), '常驻提示词引用按需技能(workflow/routing)', '')
+  check(presetLines.length < 6000, '常驻提示词保持精简(<6000 字)', `${presetLines.length}`)
 }
 
 // ── 5.13 测试资产与版本(资产化模型) ──────────────────────────────────
