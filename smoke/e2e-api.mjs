@@ -1307,6 +1307,37 @@ const granularityText = await readFile(join(workspacePath, 'test-mode/granularit
 check(granularityText.includes('UI 资产粒度整改清单') && granularityText.includes('超粒度组件'), 'granularity report contains component', '')
 await api('DELETE', `/api/assets/${uiAssetId}`, undefined, { workspaceId })
 
+// 标签筛选:资产查询、工作项查询、按标签批量执行、资产标签软校验
+const taggedAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '资产测试', name: '冒烟标签资产', tags: ['冒烟'], baseUrl,
+  request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] },
+})
+const untaggedAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '资产测试', name: '无标签资产', baseUrl,
+  request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] },
+})
+const assetByTag = await api('GET', '/api/assets', undefined, { workspaceId, module: '资产测试', tag: '冒烟' })
+check(assetByTag.body.assets.some((asset) => asset.id === taggedAsset.body.asset.id) && !assetByTag.body.assets.some((asset) => asset.id === untaggedAsset.body.asset.id), 'asset list filters by tag', JSON.stringify(assetByTag.body.assets.map((asset) => asset.name)))
+const assetByTags = await api('GET', '/api/assets', undefined, { workspaceId, module: '资产测试', tags: '冒烟,其他' })
+check(assetByTags.body.assets.some((asset) => asset.id === taggedAsset.body.asset.id), 'asset list filters by multiple tags', JSON.stringify(assetByTags.body.assets.map((asset) => asset.name)))
+const tagWorkItem = await api('POST', '/api/cases', {
+  workspaceId, name: '标签筛选工作项', type: 'functional', priority: 'medium', tags: ['冒烟'],
+  assets: [{ assetId: taggedAsset.body.asset.id }],
+})
+const casesByTag = await api('GET', '/api/cases', undefined, { workspaceId, tag: '冒烟' })
+check(casesByTag.body.cases.some((item) => item.id === tagWorkItem.body.case.id), 'case list filters by tag', JSON.stringify(casesByTag.body.cases.map((item) => item.name)))
+const batchByTag = await api('POST', '/api/assets/run-batch', { workspaceId, module: '资产测试', tags: ['冒烟'], batchSize: 10 })
+check(batchByTag.status === 200 && batchByTag.body.results.length >= 1 && batchByTag.body.results.every((item) => item.assetId !== untaggedAsset.body.asset.id), 'batch run filters by tags', JSON.stringify(batchByTag.body.results.map((item) => item.name)))
+const unknownTagAsset = await api('POST', '/api/assets', {
+  workspaceId, kind: 'api', module: '资产测试', name: '未知标签资产', tags: ['不存在标签'], baseUrl,
+  request: { method: 'GET', url: '/api/me' },
+})
+check((unknownTagAsset.body.warnings ?? []).some((item) => item.includes('标签不在标签库')), 'asset tag outside library produces warning', JSON.stringify(unknownTagAsset.body.warnings))
+await api('DELETE', `/api/assets/${taggedAsset.body.asset.id}`, undefined, { workspaceId })
+await api('DELETE', `/api/assets/${untaggedAsset.body.asset.id}`, undefined, { workspaceId })
+await api('DELETE', `/api/assets/${unknownTagAsset.body.asset.id}`, undefined, { workspaceId })
+await api('DELETE', `/api/cases/${tagWorkItem.body.case.id}`, undefined, { workspaceId })
+
 // 创建资产:首次通过即固化
 const assetCreate = await api('POST', '/api/assets', { workspaceId, kind: 'api', module: '资产测试', name: '健康检查', baseUrl, request: { method: 'GET', url: '/api/me', assertions: [{ type: 'status', operator: 'eq', expected: 200 }] } })
 check(assetCreate.status === 200 && assetCreate.body.asset.status === 'untested', 'create api asset', JSON.stringify(assetCreate.body.asset?.id))

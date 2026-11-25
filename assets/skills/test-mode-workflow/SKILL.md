@@ -115,6 +115,12 @@ description: Detailed reference for test-mode assets and test work items - JSON 
   生成无凭证、不存在 ID、错误信息泄露(可选越权)资产 + 一个安全回归工作项;
 - 越权资产需配置 `OTHER_ID`;只用于授权的测试环境,不执行扫描/攻击。
 
+## 3.6 标签
+
+- 标签库：`test-mode/tags.json`（基础配置 → 标签）；工作项 tags 必须来自库，资产 tags 库外只给软提示；
+- 查询/执行过滤：`GET /api/assets?tags=a,b`、`GET /api/cases?tag=a`、`POST /api/assets/run-batch { tags }`；
+- 界面：资产库与工作项都有标签快捷筛选 chips；资产详情会提示库外标签。
+
 ## 4. 断言与变量
 
 - 断言类型：`status`（状态码）、`header`（响应头）、`body`（响应文本）、`json`（`$.a.b[0].c`）、`duration`（耗时上限）；

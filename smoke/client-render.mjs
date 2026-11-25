@@ -91,6 +91,7 @@ const state = {
       status: 'failed', stats: { runs: 1, passed: 0, failed: 1, totalDurationMs: 1 },
       lastRun: { pass: false, at: '2026-01-02T00:00:00Z' },
       securityWarnings: ['状态断言只期望 2xx,安全场景通常应期望 4xx(401/403/404)'],
+      tagWarnings: ['旧标签'],
     },
     {
       id: 'ui:login-flow', kind: 'ui', type: 'flow', module: '登录', name: '登录流程', tags: [],
@@ -373,6 +374,7 @@ console.log('\n=== 资产库 ===')
   await sleep(40)
   check(rootEl.textContent.includes('获取用户') && !rootEl.textContent.includes('登录接口'), '点击「失败」只显示失败资产', rootEl.textContent.slice(0, 200))
   check(rootEl.textContent.includes('安全提示') && rootEl.textContent.includes('2xx'), '安全资产显示软校验提示', rootEl.textContent.slice(0, 260))
+  check(rootEl.textContent.includes('标签提示') && rootEl.textContent.includes('旧标签'), '资产显示库外标签提示', '')
   check(rootEl.textContent.includes('筛选出 1 项'), '状态筛选显示命中数量', '')
   statusChip('failed').click()
   await sleep(40)
@@ -390,6 +392,15 @@ console.log('\n=== 资产库 ===')
     await sleep(80)
     check(rootEl.textContent.includes('安全回归已生成'), '确认后生成安全回归并提示', rootEl.textContent.slice(-200))
   }
+  // 标签筛选:只显示带该标签的资产
+  const tagChip = (value) => [...rootEl.querySelectorAll('[data-filter-group="tag"]')].find((el) => el.getAttribute('data-filter-value') === value)
+  check(tagChip('冒烟') !== undefined, '资产库提供标签快捷筛选', '')
+  tagChip('冒烟').click()
+  await sleep(40)
+  check(rootEl.textContent.includes('登录接口') && !rootEl.textContent.includes('获取用户'), '按标签筛选资产', rootEl.textContent.slice(0, 200))
+  tagChip('').click()
+  await sleep(40)
+  check(rootEl.textContent.includes('登录接口'), '清空标签筛选恢复全部', '')
   // 恢复选中已固化的登录接口(筛选后选中项变为失败资产)
   moduleButton('登录').click()
   await sleep(30)
@@ -453,6 +464,13 @@ console.log('\n=== 测试工作项 ===')
   chip('priority', '').click()
   await sleep(30)
   check(rootEl.textContent.includes('登录用例') && rootEl.textContent.includes('支付失败工作项'), '清空筛选恢复全部', '')
+  const workTag = (value) => [...rootEl.querySelectorAll('[data-filter-group="tag"]')].find((el) => el.getAttribute('data-filter-value') === value)
+  check(workTag('冒烟') !== undefined, '工作项提供标签快捷筛选', '')
+  workTag('冒烟').click()
+  await sleep(30)
+  check(rootEl.textContent.includes('登录用例') && !rootEl.textContent.includes('支付失败工作项'), '按标签筛选工作项', rootEl.textContent.slice(0, 200))
+  workTag('').click()
+  await sleep(30)
   const e2eTab = findButton(rootEl, 'e2e测试')
   if (e2eTab) {
     e2eTab.click()
