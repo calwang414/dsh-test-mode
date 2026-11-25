@@ -56,6 +56,7 @@ dsh-test-mode/
 
 - 所有会话(无论哪个 sessionId)的 Test 视图都指向 `<工作区>/test-mode/` 这一个项目;
 - 项目文件直接放在 `test-mode/` 根:assets/(接口/UI 资产)、cases/(用例=资产组合)、versions/(版本报告)、manifests/(被测插件源码)、api/(旧项目/环境数据,已迁移)、legacy-*/(旧 plans/reports/results 归档);
+- **旧数据迁移是安全默认**:`POST /api/migrate/assets` 默认 dry-run,必须 `{"apply": true}` 才写盘;已存在 `cases[].assets` 的用例只合并、绝不覆盖,写盘前自动备份 `cases/` 到 `backup-assets-migration-*` 并校验引用数不减少;
 - 多会话并发编辑由 host 的文件操作锁与原子写保护。
 
 ## 动态插件测试(核心能力)

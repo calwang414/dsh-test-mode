@@ -1177,10 +1177,60 @@ console.log('\n=== 预设 prompt 段占位符 ===')
 // ── 5.13 测试资产与版本(资产化模型) ──────────────────────────────────
 console.log('\n=== 测试资产与版本 ===')
 // 迁移:旧项目/用例 → 资产(幂等)
-const migrated = await api('POST', '/api/migrate/assets', { workspaceId })
-check(migrated.status === 200 && migrated.body.manifest.counts.apiAssets >= 1, 'migrate legacy data to assets', JSON.stringify(migrated.body.manifest?.counts))
-const migratedAgain = await api('POST', '/api/migrate/assets', { workspaceId })
-check(migratedAgain.status === 200 && migratedAgain.body.manifest.warnings.length >= 0, 'migrate is idempotent', JSON.stringify(migratedAgain.body.manifest?.counts))
+// 迁移默认 dry-run:只算计划不写盘,返回 hint;必须显式 apply:true。
+const migratedDry = await api('POST', '/api/migrate/assets', { workspaceId })
+check(migratedDry.status === 200 && migratedDry.body.manifest.dryRun === true && migratedDry.body.manifest.counts.apiAssets >= 1, 'migrate dry-run by default', JSON.stringify(migratedDry.body.manifest?.counts))
+check(typeof migratedDry.body.hint === 'string' && migratedDry.body.hint.includes('apply'), 'dry-run returns apply hint', migratedDry.body.hint)
+const assetsDirBefore = await readdir(join(workspacePath, 'test-mode/assets/api')).catch(() => [])
+check(assetsDirBefore.length === 0, 'dry-run writes no asset files', JSON.stringify(assetsDirBefore))
+
+// 创建一个旧格式用例(steps + requestRef),验证迁移会推导出资产引用。
+const legacyStepsCase = await api('POST', '/api/cases', {
+  workspaceId, name: '旧格式步骤用例',
+  steps: [{ action: '调用登录接口', expected: '成功', requestRef: { projectId, collectionId: 'col-auth', requestId: 'req-login' } }],
+})
+check(legacyStepsCase.status === 200, 'create legacy steps case for migration', JSON.stringify(legacyStepsCase.body.message))
+
+const migrated = await api('POST', '/api/migrate/assets', { workspaceId, apply: true })
+const migrateManifest = migrated.body.manifest
+check(migrated.status === 200 && migrateManifest.dryRun === false && migrateManifest.counts.apiAssets >= 1, 'migrate applies with explicit apply:true', JSON.stringify(migrateManifest?.counts))
+check(typeof migrateManifest.backup === 'string' && migrateManifest.backup.startsWith('backup-assets-migration-'), 'migration records automatic backup', String(migrateManifest.backup))
+const backupFiles = await readdir(join(workspacePath, 'test-mode', migrateManifest.backup, 'cases')).catch(() => [])
+check(backupFiles.length > 0, 'migration backup contains case files', String(backupFiles.length))
+
+// 引用数一致性:manifest 的 caseAssetRefs 必须等于磁盘上所有用例 assets 引用数之和。
+const sumCaseRefs = async () => {
+  let total = 0
+  for (const name of await readdir(join(workspacePath, 'test-mode/cases'))) {
+    if (!name.endsWith('.json')) continue
+    let item
+    try {
+      item = JSON.parse(await readFile(join(workspacePath, 'test-mode/cases', name), 'utf8'))
+    } catch {
+      continue // 文件钩子测试留下的非 JSON 夹具不参与统计
+    }
+    total += (Array.isArray(item.assets) ? item.assets : []).filter((entry) => entry && typeof entry.assetId === 'string').length
+  }
+  return total
+}
+const legacyAfterMigrate = await api('GET', `/api/cases/${legacyStepsCase.body.case.id}`, undefined, { workspaceId })
+check(legacyAfterMigrate.body.case.assets?.length >= 1, 'legacy steps become asset refs', JSON.stringify(legacyAfterMigrate.body.case.assets))
+const refsOnDisk = await sumCaseRefs()
+check(refsOnDisk > 0 && refsOnDisk === migrateManifest.counts.caseAssetRefs, 'migration ref counts match disk', `${refsOnDisk} vs ${migrateManifest.counts.caseAssetRefs}`)
+
+// 已使用新 assets[] 的用例绝不能被迁移清空(本次 bug 的回归测试)。
+const firstMigratedAsset = (await api('GET', '/api/assets', undefined, { workspaceId })).body.assets[0]
+const preservedCase = await api('POST', '/api/cases', {
+  workspaceId, name: '保留资产用例', type: 'e2e', priority: 'high', automation: 'auto', result: 'not_run',
+  assets: [{ assetId: firstMigratedAsset.id, data: { body: '{"preserved":true}' } }],
+})
+check(preservedCase.status === 200 && preservedCase.body.case.assets.length === 1, 'create new-model case with assets', JSON.stringify(preservedCase.body.message))
+const rerunApply = await api('POST', '/api/migrate/assets', { workspaceId, apply: true })
+check(rerunApply.body.manifest.counts.caseRefsBefore === rerunApply.body.manifest.counts.caseAssetRefs, 're-migration does not shrink refs', JSON.stringify(rerunApply.body.manifest.counts))
+const preservedAfter = await api('GET', `/api/cases/${preservedCase.body.case.id}`, undefined, { workspaceId })
+check(preservedAfter.body.case.assets?.length === 1 && preservedAfter.body.case.assets[0].data?.body === '{"preserved":true}', 'existing case assets preserved by re-migration', JSON.stringify(preservedAfter.body.case.assets))
+const rerunDry = await api('POST', '/api/migrate/assets', { workspaceId })
+check(rerunDry.body.manifest.dryRun === true && rerunDry.body.manifest.counts.caseRefsBefore === rerunDry.body.manifest.counts.caseAssetRefs, 'migrate is idempotent (dry-run)', JSON.stringify(rerunDry.body.manifest.counts))
 const assetList = await api('GET', '/api/assets', undefined, { workspaceId })
 check(assetList.status === 200 && assetList.body.assets.length >= 1, 'list assets', JSON.stringify(assetList.body.summary))
 check(typeof assetList.body.summary?.untested === 'number', 'asset summary exposed', JSON.stringify(assetList.body.summary))

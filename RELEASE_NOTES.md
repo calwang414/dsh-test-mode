@@ -1,35 +1,28 @@
-# dsh-test-mode v0.10.0
+# dsh-test-mode v0.10.1
 
-**提示词优化两阶段完成:修复旧冲突、统一术语,并把常驻提示词从 ~8.3k tokens 降到 ~2.6k。**
+**修复旧模型迁移覆盖新模型用例 `assets[]` 的数据丢失问题。**
 
-## 阶段 1:修冲突与术语统一
+## 修复
 
-- 删除常驻提示词里的旧链路:`run-collection` 写 `reports/`、`/api/ui/run`、`/api/plans`、
-  「智能绑定接口」等,统一为资产/工作项/版本 API;
-- 术语统一为「测试工作项」(全文不再出现旧「用例」措辞);
-- 产物规范替换为**资产 JSON + 工作项 JSON** 示例,删除旧 `api/projects` / `ui/scripts` 示例;
-- Persona 更新为「测试资产 + 测试工作项(四类)+ 分批系统测试 + 版本报告」;
-- `plugin-testing` 技能同步当前执行模型(资产执行/工作项/版本,不再写单次报告)。
-
-## 阶段 2:常驻/按需分层
-
-- 常驻提示词:13.3k 字 → **4.2k 字**(约 8.3k → 2.6k tokens,−68%),只保留身份、目录、
-  资产状态机、工作项字段、分批补测、版本规则、变更清单、技能路由与约束;
-- 新增按需技能 `test-mode-workflow`:资产/工作项字段与示例、执行接口表、断言/变量/
-  环境/数据工厂、UI 探测与等待、失败归因、保存校验;
-- 新增 4 个路由技能:`api-testing-assets`、`ui-e2e-assets`、`performance-testing-assets`、
-  `security-testing-assets`,按工作项类型组合内置 QA 技能;
-- 删除客户端死代码 prompt:`buildPlanPrompt`、`buildBindRefsPrompt`、`buildSceneCasePrompt`、
-  `buildGapMockPrompt`、`buildUiPrompt`、`buildElementsPrompt`、`buildCaseImprovePrompt`、
-  `buildTagPromptOne` 及已移除的计划编辑器组件(约 26k 字符);
-- 「本接口 mock」提示词改为面向接口资产(`assets/api`),与工作项 `assets[].data` 对齐;
-- 新增常驻提示词回归测试:禁止旧链路/旧术语、限制字数、必须引用按需技能。
+- **合并而非覆盖**:迁移只从 legacy `steps[].requestRef/uiRef` 推导引用;
+  用例已有 `assets[]` 时原样保留(含 `data`/`skip`),仅追加尚不存在的引用,
+  不再把新模型用例清空为 `[]`;
+- **默认 dry-run**:`POST /api/migrate/assets` 默认只计算不写盘并返回 hint;
+  必须显式 `{"apply": true}` 才写入;
+- **写盘前自动备份**:`cases/` 复制到 `backup-assets-migration-<时间戳>/`,
+  路径记录在 manifest `backup` 字段;
+- **一致性守卫**:写盘前校验所有用例的资产引用总数不减少,写盘后从磁盘复核,
+  不一致直接抛错(备份可回滚);manifest 增加 `caseRefsBefore`/`caseRefsAfter`、
+  `casesPreserved`、`wouldWrite`;
+- 不再对保留的用例写入 `migratedAt`(避免误标"已迁移")。
 
 ## 测试
 
-- e2e **258**(含 7 项提示词回归)、渲染 **72**、插件 **8**、技能 **32** 全绿。
+- e2e **269**:新增 dry-run 默认/无写入、apply 后备份存在、引用数与磁盘一致、
+  新建新模型用例二次迁移 assets+data 保留、旧 steps 用例正常推导;
+- 渲染 **72**、插件 **8**、技能 **32** 全绿。
 
 ## 升级
 
-重启 DeepSeek Harness(桌面版完全退出再打开)。内置技能数量:1 个 plugin-testing +
-10 个 QA 技能 + 1 个工作流技能 + 4 个路由技能。
+重启 DeepSeek Harness(桌面版完全退出再打开)。历史已被清空的用例不会被自动
+恢复;需要时从 `backup-assets-migration-*` 或会话记录手工找回后重新执行。
